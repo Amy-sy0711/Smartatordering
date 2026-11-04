@@ -1,0 +1,6 @@
+{
+  "usingComponents": {
+    "pay-panel": "../../components/pay-panel/index"
+  },
+  "navigationBarTitleText": "订单详情"
+}

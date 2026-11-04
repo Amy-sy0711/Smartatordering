@@ -1,0 +1,92 @@
+<view class="page">
+  <view class="loading" wx:if="{{loading}}">加载菜品…</view>
+
+  <block wx:if="{{!loading}}">
+    <view class="card">
+      <view class="section-title">{{dishId ? '编辑菜品' : '新增菜品'}}</view>
+
+      <view class="field">
+        <text class="field-label">菜品名称</text>
+        <input class="field-input" value="{{form.name}}" maxlength="20" data-field="name" bindinput="onInput" placeholder="如 黄焖鸡米饭" />
+      </view>
+
+      <view class="field">
+        <text class="field-label">分类</text>
+        <input class="field-input" value="{{form.category}}" maxlength="10" data-field="category" bindinput="onInput" placeholder="盖饭 / 面食 / 饮品" />
+      </view>
+      <view class="chips">
+        <text
+          class="chip {{form.category === item ? 'chip--active' : ''}}"
+          wx:for="{{categories}}"
+          wx:key="*this"
+          data-value="{{item}}"
+          bindtap="pickCategory"
+        >{{item}}</text>
+      </view>
+
+      <view class="field">
+        <text class="field-label">价格（元）</text>
+        <input class="field-input" value="{{form.priceYuan}}" type="digit" data-field="priceYuan" bindinput="onInput" placeholder="如 18.00" />
+      </view>
+
+      <view class="field">
+        <text class="field-label">排序（小在前）</text>
+        <input class="field-input" value="{{form.sortOrder}}" type="number" data-field="sortOrder" bindinput="onInput" placeholder="0" />
+      </view>
+
+      <view class="field">
+        <text class="field-label">菜品图片</text>
+        <view class="image-line">
+          <image class="dish-image" wx:if="{{form.imageUrl}}" src="{{form.imageUrl}}" mode="aspectFill"></image>
+          <view class="image-ops">
+            <view class="btn btn--ghost btn--small" bindtap="chooseImage">{{uploading ? '上传中…' : (form.imageUrl ? '更换图片' : '上传图片')}}</view>
+            <view class="btn btn--ghost btn--small" wx:if="{{form.imageUrl}}" bindtap="clearImage">清除</view>
+          </view>
+        </view>
+      </view>
+
+      <view class="switch-row">
+        <label class="switch-item">
+          <switch checked="{{form.onSale}}" data-field="onSale" bindchange="onSwitch" color="#e85d04" />
+          <text>上架</text>
+        </label>
+        <label class="switch-item">
+          <switch checked="{{form.soldOut}}" data-field="soldOut" bindchange="onSwitch" color="#c62828" />
+          <text>售罄</text>
+        </label>
+      </view>
+    </view>
+
+    <view class="card">
+      <view class="row-between">
+        <view class="section-title">规格（可空）</view>
+        <view class="btn btn--ghost btn--small" bindtap="addSpecGroup">＋ 添加规格组</view>
+      </view>
+      <view class="muted spec-tip">如「辣度：不辣/微辣/中辣」「加料：加蛋 +2 元」；加价单位是元，留空按 0 处理</view>
+
+      <view class="empty small" wx:if="{{!specs.length}}">暂无规格，顾客加购时可直接选数量</view>
+
+      <view class="spec-group" wx:for="{{specs}}" wx:key="index" wx:for-item="group" wx:for-index="gi">
+        <view class="spec-head">
+          <input class="spec-name" value="{{group.name}}" maxlength="12" data-gi="{{gi}}" bindinput="onGroupName" placeholder="规格组名称，如 辣度" />
+          <text class="spec-del" data-gi="{{gi}}" bindtap="removeSpecGroup">删除组</text>
+        </view>
+        <label class="switch-item spec-required">
+          <switch checked="{{group.required}}" data-gi="{{gi}}" bindchange="onGroupRequired" color="#e85d04" />
+          <text>必选</text>
+        </label>
+
+        <view class="option-row" wx:for="{{group.options}}" wx:key="index" wx:for-item="option" wx:for-index="oi">
+          <input class="option-label" value="{{option.label}}" maxlength="12" data-gi="{{gi}}" data-oi="{{oi}}" bindinput="onOptionLabel" placeholder="选项，如 微辣" />
+          <input class="option-delta" value="{{option.deltaYuan}}" type="digit" data-gi="{{gi}}" data-oi="{{oi}}" bindinput="onOptionDelta" placeholder="加价(元)" />
+          <text class="option-del" data-gi="{{gi}}" data-oi="{{oi}}" bindtap="removeOption">×</text>
+        </view>
+        <view class="add-option" data-gi="{{gi}}" bindtap="addOption">＋ 添加选项</view>
+      </view>
+    </view>
+
+    <view class="btn btn--primary btn--block save-btn {{saving ? 'btn--disabled' : ''}}" bindtap="save">
+      {{saving ? '保存中…' : '保存菜品'}}
+    </view>
+  </block>
+</view>

@@ -1,0 +1,174 @@
+.mask {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 1000;
+}
+
+.sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1001;
+  background: #ffffff;
+  border-radius: 24rpx 24rpx 0 0;
+  max-height: 78vh;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.sheet-head {
+  display: flex;
+  align-items: center;
+  padding: 28rpx 24rpx 16rpx;
+}
+
+.sheet-img {
+  width: 120rpx;
+  height: 120rpx;
+  border-radius: 12rpx;
+  background: #f0f2f6;
+  flex-shrink: 0;
+}
+
+.sheet-info {
+  flex: 1;
+  margin-left: 20rpx;
+}
+
+.sheet-name {
+  font-size: 32rpx;
+  font-weight: 600;
+}
+
+.sheet-price {
+  color: #e85d04;
+  font-size: 30rpx;
+  margin-top: 8rpx;
+}
+
+.sheet-delta {
+  color: #8b93a1;
+  font-size: 22rpx;
+}
+
+.sheet-close {
+  width: 56rpx;
+  height: 56rpx;
+  text-align: center;
+  line-height: 56rpx;
+  color: #8b93a1;
+  font-size: 32rpx;
+}
+
+.sheet-body {
+  flex: 1;
+  padding: 0 24rpx;
+  max-height: 50vh;
+}
+
+.group {
+  padding: 20rpx 0;
+  border-top: 1rpx solid #f2f4f8;
+}
+
+.group-name {
+  font-size: 26rpx;
+  font-weight: 600;
+  margin-bottom: 16rpx;
+}
+
+.group-req {
+  font-size: 20rpx;
+  color: #e85d04;
+  margin-left: 10rpx;
+  font-weight: 400;
+}
+
+.options {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.option {
+  padding: 12rpx 24rpx;
+  border-radius: 999rpx;
+  background: #f4f5f8;
+  color: #4a505c;
+  font-size: 24rpx;
+  margin: 0 16rpx 16rpx 0;
+}
+
+.option--active {
+  background: #fff1e5;
+  color: #e85d04;
+  border: 1rpx solid #e85d04;
+}
+
+.option-delta {
+  font-size: 22rpx;
+  margin-left: 6rpx;
+}
+
+.stepper {
+  display: flex;
+  align-items: center;
+}
+
+.step {
+  width: 60rpx;
+  height: 60rpx;
+  line-height: 58rpx;
+  text-align: center;
+  border-radius: 50%;
+  background: #f4f5f8;
+  font-size: 30rpx;
+  color: #1f2430;
+}
+
+.step--disabled {
+  color: #c9ccd4;
+}
+
+.step-value {
+  width: 88rpx;
+  text-align: center;
+  font-size: 30rpx;
+}
+
+.tip {
+  color: #c62828;
+  font-size: 24rpx;
+  padding: 8rpx 0 20rpx;
+}
+
+.sheet-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20rpx 24rpx calc(20rpx);
+  border-top: 1rpx solid #f2f4f8;
+}
+
+.foot-total {
+  font-size: 24rpx;
+  color: #5c6472;
+}
+
+.foot-price {
+  color: #e85d04;
+  font-size: 34rpx;
+  font-weight: 600;
+  margin-left: 8rpx;
+}
+
+.foot-btn {
+  width: 320rpx;
+  height: 84rpx;
+  border-radius: 999rpx;
+}

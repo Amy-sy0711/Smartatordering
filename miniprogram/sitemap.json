@@ -1,0 +1,9 @@
+{
+  "desc": "点餐小程序 sitemap",
+  "rules": [
+    {
+      "action": "allow",
+      "page": "*"
+    }
+  ]
+}

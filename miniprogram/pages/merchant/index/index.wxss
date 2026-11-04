@@ -1,0 +1,99 @@
+.head-card {
+  background: linear-gradient(135deg, #2b3242, #1f2430);
+  color: #ffffff;
+  border-radius: 24rpx;
+  padding: 28rpx;
+  margin-bottom: 20rpx;
+}
+
+.head-title {
+  font-size: 36rpx;
+  font-weight: 600;
+}
+
+.head-sub {
+  font-size: 24rpx;
+  opacity: 0.75;
+  margin-top: 10rpx;
+}
+
+.head-openid {
+  margin-top: 20rpx;
+  font-size: 22rpx;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 10rpx;
+  padding: 12rpx 16rpx;
+  word-break: break-all;
+}
+
+.copy {
+  color: #ffb27e;
+  margin-left: 8rpx;
+}
+
+.head-tip {
+  margin-top: 14rpx;
+  font-size: 22rpx;
+  color: #ffd3b3;
+}
+
+.summary {
+  display: flex;
+  justify-content: space-between;
+}
+
+.summary-item {
+  flex: 1;
+  text-align: center;
+}
+
+.summary-value {
+  font-size: 32rpx;
+  font-weight: 600;
+  color: #e85d04;
+}
+
+.summary-label {
+  font-size: 22rpx;
+  color: #8b93a1;
+  margin-top: 6rpx;
+}
+
+.grid {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+}
+
+.grid-item {
+  width: calc(50% - 10rpx);
+  background: #ffffff;
+  border-radius: 20rpx;
+  padding: 24rpx;
+  margin-bottom: 20rpx;
+  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.04);
+  box-sizing: border-box;
+}
+
+.grid-icon {
+  font-size: 40rpx;
+}
+
+.grid-title {
+  font-size: 28rpx;
+  font-weight: 600;
+  margin-top: 12rpx;
+}
+
+.grid-desc {
+  font-size: 22rpx;
+  color: #8b93a1;
+  margin-top: 6rpx;
+  line-height: 1.4;
+}
+
+.loading {
+  padding: 120rpx 0;
+  text-align: center;
+  color: #8b93a1;
+}

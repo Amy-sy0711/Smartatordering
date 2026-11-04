@@ -1,0 +1,87 @@
+<view class="page">
+  <view class="loading" wx:if="{{loading}}">加载中…</view>
+
+  <block wx:if="{{!loading}}">
+    <view class="card">
+      <view class="row-between">
+        <view>
+          <view class="title">今日菜单</view>
+          <view class="muted menu-date">{{dateLabel}}</view>
+        </view>
+        <text class="tag {{menu.published ? 'tag--success' : 'tag--warn'}}">{{menu.published ? '已发布' : '未发布'}}</text>
+      </view>
+      <view class="slots-line" wx:if="{{menu.published}}">
+        <text class="muted">取餐时段：</text>
+        <text class="slot-text" wx:for="{{menu.slots}}" wx:key="id">{{item.label}}(限{{item.limit}})</text>
+      </view>
+      <view class="muted menu-count" wx:if="{{menu.published}}">本次发布包含 {{menu.dishIds.length}} 个菜品</view>
+      <view class="row menu-actions">
+        <view class="btn btn--primary btn--small" bindtap="togglePublishPanel">{{menu.published ? '更新今日菜单' : '发布今日菜单'}}</view>
+        <view class="btn btn--ghost btn--small" bindtap="toggleHistory">从历史复制</view>
+        <view class="btn btn--ghost btn--small" bindtap="addDish">＋ 新增菜品</view>
+      </view>
+    </view>
+
+    <view class="card" wx:if="{{showPublish}}">
+      <view class="section-title">发布设置</view>
+      <view class="field">
+        <text class="field-label">菜单标题</text>
+        <input class="field-input" value="{{menuTitle}}" maxlength="20" bindinput="onTitleInput" placeholder="今日菜单" />
+      </view>
+      <view class="field-title">取餐时段（每档限量，单位：单）</view>
+      <view class="slot-row" wx:for="{{editSlots}}" wx:key="index">
+        <input class="slot-input" value="{{item.label}}" data-index="{{index}}" bindinput="onSlotLabel" placeholder="如 11:30-12:00" />
+        <input class="slot-limit" value="{{item.limit}}" data-index="{{index}}" bindinput="onSlotLimit" type="number" placeholder="20" />
+        <text class="slot-del" data-index="{{index}}" bindtap="removeSlot">删除</text>
+      </view>
+      <view class="btn btn--ghost btn--small slot-add" bindtap="addSlot">＋ 添加时段</view>
+      <view class="muted publish-hint">发布后顾客即可按此菜单点餐；重复发布不会清空已占用的时段名额。</view>
+      <view class="btn btn--primary btn--block publish-btn {{publishing ? 'btn--disabled' : ''}}" bindtap="publish">
+        {{publishing ? '发布中…' : '确认发布'}}
+      </view>
+    </view>
+
+    <view class="card" wx:if="{{showHistory}}">
+      <view class="section-title">历史菜单（复制菜品与时段）</view>
+      <view class="empty small" wx:if="{{!history.length}}">还没有历史菜单</view>
+      <view class="history-row" wx:for="{{history}}" wx:key="date">
+        <view class="history-main">
+          <view class="history-date">{{item.dateLabel}}</view>
+          <view class="muted">{{item.title}} · {{item.dishCount}} 个菜品 · {{item.slotCount}} 个时段</view>
+        </view>
+        <view class="btn btn--ghost btn--small" data-date="{{item.date}}" bindtap="copyFromHistory">复制</view>
+      </view>
+    </view>
+
+    <view class="card">
+      <view class="row-between">
+        <view class="title">菜品库（{{dishes.length}}）</view>
+        <text class="muted">售罄/下架会同步影响顾客端</text>
+      </view>
+      <view class="empty small" wx:if="{{!dishes.length}}">还没有菜品，点右上「新增菜品」开始</view>
+      <view class="dish-row" wx:for="{{dishes}}" wx:key="_id">
+        <view class="dish-main">
+          <view class="dish-name">
+            {{item.name}}
+            <text class="tag" wx:if="{{item.category}}">{{item.category}}</text>
+          </view>
+          <view class="muted dish-price">¥{{item.priceText}} · {{item.specs.length ? item.specs.length + ' 组规格' : '无规格'}}</view>
+          <view class="dish-switches">
+            <label class="switch-item">
+              <switch checked="{{item.onSale}}" data-id="{{item._id}}" data-field="onSale" bindchange="toggleDish" color="#e85d04" />
+              <text>上架</text>
+            </label>
+            <label class="switch-item">
+              <switch checked="{{item.soldOut}}" data-id="{{item._id}}" data-field="soldOut" bindchange="toggleDish" color="#c62828" />
+              <text>售罄</text>
+            </label>
+          </view>
+        </view>
+        <view class="dish-ops">
+          <view class="op" data-id="{{item._id}}" bindtap="editDish">编辑</view>
+          <view class="op op-danger" data-id="{{item._id}}" data-name="{{item.name}}" bindtap="deleteDish">删除</view>
+        </view>
+      </view>
+    </view>
+  </block>
+</view>

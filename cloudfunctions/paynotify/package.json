@@ -1,0 +1,9 @@
+{
+  "name": "paynotify",
+  "version": "1.0.0",
+  "description": "微信支付结果回调云函数（cloudPay functionName 指向本函数）",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3"
+  }
+}

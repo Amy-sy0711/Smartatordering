@@ -1,0 +1,40 @@
+<view class="pay-panel" wx:if="{{order.status === 'pending_pay'}}">
+  <block wx:if="{{mode === 'transfer'}}">
+    <view class="pay-head">
+      <text class="pay-title">向商家转账</text>
+      <text class="pay-amount">¥{{order.totalText}}</text>
+    </view>
+    <image class="pay-qr" wx:if="{{settings.transfer.qrImageUrl}}" src="{{settings.transfer.qrImageUrl}}" mode="aspectFit" bindtap="previewQr"></image>
+    <view class="pay-qr-empty" wx:else>商家尚未上传收款码，请与商家联系转账（点下方按钮后等待商家确认）</view>
+    <view class="pay-payee" wx:if="{{settings.transfer.payeeName}}">收款人：{{settings.transfer.payeeName}}</view>
+    <view class="pay-tip">{{settings.transfer.tipText}}</view>
+    <button class="btn btn--primary btn--block pay-btn" loading="{{submitting}}" bindtap="submit">我已转账</button>
+  </block>
+
+  <block wx:elif="{{mode === 'jsapi'}}">
+    <view class="pay-head">
+      <text class="pay-title">小程序内微信支付</text>
+      <text class="pay-amount">¥{{order.totalText}}</text>
+    </view>
+    <view class="pay-tip">下单后直接调起微信支付，支付成功即进入待接单</view>
+    <button class="btn btn--primary btn--block pay-btn" loading="{{submitting}}" disabled="{{!jsapiUsable}}" bindtap="submit">微信支付</button>
+    <view class="pay-error" wx:if="{{!jsapiUsable}}">{{settings.unusableReason}}</view>
+  </block>
+
+  <block wx:else>
+    <view class="pay-head">
+      <text class="pay-title">模拟支付（仅开发调试）</text>
+      <text class="pay-amount">¥{{order.totalText}}</text>
+    </view>
+    <view class="pay-tip">点击后订单直接置为已收款，并记录 MOCK 交易号；正式环境请切换为 transfer 或 jsapi</view>
+    <button class="btn btn--primary btn--block pay-btn" loading="{{submitting}}" bindtap="submit">模拟支付</button>
+  </block>
+</view>
+
+<view class="pay-panel" wx:elif="{{order.status === 'pending_confirm'}}">
+  <view class="pay-head">
+    <text class="pay-title">等待商家确认收款</text>
+    <text class="pay-amount">¥{{order.totalText}}</text>
+  </view>
+  <view class="pay-tip">你已标记转账{{order.transferNote ? '（备注：' + order.transferNote + '）' : ''}}，商家确认后开始备餐</view>
+</view>

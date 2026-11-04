@@ -1,0 +1,86 @@
+.board-head {
+  padding: 8rpx 4rpx 20rpx;
+}
+
+.tabs {
+  white-space: nowrap;
+  margin-bottom: 20rpx;
+}
+
+.tab {
+  display: inline-flex;
+  align-items: center;
+  padding: 12rpx 24rpx;
+  margin-right: 12rpx;
+  border-radius: 999rpx;
+  background: #ffffff;
+  color: #5c6472;
+  font-size: 24rpx;
+}
+
+.tab--active {
+  background: #e85d04;
+  color: #ffffff;
+}
+
+.tab-count {
+  margin-left: 6rpx;
+  font-size: 22rpx;
+  opacity: 0.85;
+}
+
+.loading {
+  padding: 80rpx 0;
+  text-align: center;
+  color: #8b93a1;
+}
+
+.order-no {
+  font-size: 30rpx;
+  font-weight: 600;
+}
+
+.order-time {
+  margin-top: 8rpx;
+}
+
+.order-items {
+  margin-top: 16rpx;
+  font-size: 28rpx;
+  line-height: 1.5;
+}
+
+.order-remark {
+  margin-top: 8rpx;
+  font-size: 24rpx;
+  color: #b26a00;
+  background: #fff8ed;
+  padding: 10rpx 14rpx;
+  border-radius: 8rpx;
+}
+
+.order-transfer {
+  margin-top: 8rpx;
+  font-size: 24rpx;
+  color: #2361d8;
+}
+
+.order-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 20rpx;
+  padding-top: 18rpx;
+  border-top: 1rpx solid #f0f2f6;
+}
+
+.order-total {
+  font-size: 32rpx;
+  font-weight: 600;
+  color: #e85d04;
+}
+
+.order-ops {
+  display: flex;
+  gap: 12rpx;
+}

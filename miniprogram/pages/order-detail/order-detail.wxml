@@ -1,0 +1,97 @@
+<view class="page">
+  <view class="loading" wx:if="{{loading}}">加载中…</view>
+
+  <block wx:if="{{order}}">
+    <view class="status-card">
+      <view class="status-top">
+        <text class="status-text">{{order.statusText}}</text>
+        <text class="tag {{order.statusTag}} status-tag">{{order.payChannelLabel}}</text>
+      </view>
+      <view class="timeline">
+        <view class="step-item" wx:for="{{order.timeline}}" wx:key="key">
+          <view class="step-dot {{item.done ? 'step-dot--done' : ''}} {{item.current ? 'step-dot--current' : ''}}"></view>
+          <view class="step-label {{item.done ? 'step-label--done' : ''}}">{{item.label}}</view>
+        </view>
+      </view>
+      <view class="refund-tip" wx:if="{{order.refunded}}">该订单已取消，退款金额 ¥{{order.refundedText}}（模拟支付无真实退款）</view>
+    </view>
+
+    <pay-panel
+      wx:if="{{showPayPanel}}"
+      order="{{order}}"
+      settings="{{order.payment}}"
+      bind:changed="onPayChanged"
+    />
+
+    <view class="card">
+      <view class="section-title">菜品明细</view>
+      <view class="item" wx:for="{{order.items}}" wx:key="dishId">
+        <view class="item-main">
+          <view class="item-name">{{item.name}}</view>
+          <view class="item-spec" wx:if="{{item.specText}}">{{item.specText}} <text class="item-delta">{{item.priceDeltaText}}</text></view>
+        </view>
+        <view class="item-qty">x{{item.qty}}</view>
+        <view class="item-total">¥{{item.lineTotalText}}</view>
+      </view>
+      <view class="divider"></view>
+      <view class="row-between">
+        <text class="muted">共 {{order.totalQty}} 件</text>
+        <text class="total">合计 ¥{{order.totalText}}</text>
+      </view>
+    </view>
+
+    <view class="card">
+      <view class="cell">
+        <text class="cell-label">订单号</text>
+        <text class="cell-value mono" bindtap="copyOrderNo">{{order.orderNo}} <text class="copy">复制</text></text>
+      </view>
+      <view class="cell">
+        <text class="cell-label">取餐时段</text>
+        <text class="cell-value">{{order.slot.label}}</text>
+      </view>
+      <view class="cell">
+        <text class="cell-label">收款方式</text>
+        <text class="cell-value">{{order.payChannelLabel || '—'}}</text>
+      </view>
+      <view class="cell">
+        <text class="cell-label">下单时间</text>
+        <text class="cell-value">{{order.createdAtText}}</text>
+      </view>
+      <view class="cell" wx:if="{{order.transferredAtText}}">
+        <text class="cell-label">标记转账</text>
+        <text class="cell-value">{{order.transferredAtText}}</text>
+      </view>
+      <view class="cell" wx:if="{{order.confirmInfo.at}}">
+        <text class="cell-label">商家确认收款</text>
+        <text class="cell-value">{{order.confirmInfo.at}}</text>
+      </view>
+      <view class="cell" wx:if="{{order.transactionId}}">
+        <text class="cell-label">交易号</text>
+        <text class="cell-value mono">{{order.transactionId}}</text>
+      </view>
+      <view class="cell" wx:if="{{order.remark}}">
+        <text class="cell-label">备注</text>
+        <text class="cell-value">{{order.remark}}</text>
+      </view>
+    </view>
+
+    <view class="card">
+      <view class="section-title">状态记录</view>
+      <view class="history" wx:for="{{order.statusHistory}}" wx:key="index">
+        <text class="history-label">{{item.label}}</text>
+        <text class="muted">{{item.atText}}</text>
+      </view>
+    </view>
+
+    <view class="actions safe-bottom" wx:if="{{order.actions.length}}">
+      <block wx:for="{{order.actions}}" wx:key="index" wx:for-item="action">
+        <view
+          wx:if="{{action !== 'pay'}}"
+          class="btn {{action === 'cancel' ? 'btn--ghost' : 'btn--primary'}} action-btn {{busy ? 'btn--disabled' : ''}}"
+          data-action="{{action}}"
+          bindtap="runAction"
+        >{{actionTextMap[action]}}</view>
+      </block>
+    </view>
+  </block>
+</view>

@@ -1,0 +1,38 @@
+<view class="page">
+  <view class="loading" wx:if="{{loading}}">加载中…</view>
+
+  <view class="empty" wx:if="{{!loading && !list.length}}">
+    <view class="empty-title">还没有订单</view>
+    <view>去今日菜单点一份吧</view>
+    <button class="btn btn--ghost empty-btn" bindtap="goMenu">去点餐</button>
+  </view>
+
+  <view class="card order" wx:for="{{list}}" wx:key="orderId">
+    <view class="order-head" data-id="{{item.orderId}}" bindtap="goDetail">
+      <view>
+        <text class="order-no">#{{item.orderNo}}</text>
+        <text class="muted order-time">{{item.createdAtText}}</text>
+      </view>
+      <text class="tag {{item.statusTag}}">{{item.statusText}}</text>
+    </view>
+
+    <view class="order-body" data-id="{{item.orderId}}" bindtap="goDetail">
+      <view class="order-summary">{{item.itemSummary}}</view>
+      <view class="order-meta">
+        <text class="muted">取餐 {{item.slotLabel}}</text>
+        <text class="muted" wx:if="{{item.payChannelLabel}}">· {{item.payChannelLabel}}</text>
+      </view>
+      <view class="order-total">合计 <text class="strong">¥{{item.totalText}}</text></view>
+      <view class="order-remark" wx:if="{{item.remark}}">备注：{{item.remark}}</view>
+    </view>
+
+    <view class="order-foot">
+      <view class="btn btn--ghost btn--small" data-id="{{item.orderId}}" catchtap="reorder">再来一单</view>
+      <view class="btn btn--primary btn--small" data-id="{{item.orderId}}" catchtap="goDetail">
+        {{item.status === 'pending_pay' ? '去付款' : '查看详情'}}
+      </view>
+    </view>
+  </view>
+
+  <view class="muted more" wx:if="{{list.length && !hasMore}}">没有更多了</view>
+</view>

@@ -1,0 +1,70 @@
+<view class="page">
+  <view class="row-between date-bar">
+    <view>
+      <view class="title">当日收益</view>
+      <view class="muted">{{dateLabel}}（Asia/Shanghai 自然日）</view>
+    </view>
+    <view class="row">
+      <picker mode="date" value="{{date}}" bindchange="onDateChange">
+        <view class="btn btn--ghost btn--small">选择日期</view>
+      </picker>
+      <view class="btn btn--ghost btn--small reset" bindtap="backToToday">今天</view>
+    </view>
+  </view>
+
+  <view class="loading" wx:if="{{loading}}">统计中…</view>
+
+  <block wx:if="{{!loading && stats}}">
+    <view class="card hero">
+      <view class="hero-label">已收款金额</view>
+      <view class="hero-amount">¥{{stats.paidCentsText}}</view>
+      <view class="hero-sub">已确认收款 {{stats.paidCount}} 单 · 客单价 ¥{{stats.avgOrderCentsText}} · 共 {{stats.orderCount}} 单</view>
+    </view>
+
+    <view class="card">
+      <view class="section-title">收款口径</view>
+      <view class="stat-grid">
+        <view class="stat-cell">
+          <view class="stat-value warn">¥{{stats.pendingConfirmCentsText}}</view>
+          <view class="stat-label">待确认金额（{{stats.pendingConfirmCount}} 单）</view>
+        </view>
+        <view class="stat-cell">
+          <view class="stat-value">¥{{stats.pendingPayCentsText}}</view>
+          <view class="stat-label">待付款金额（{{stats.pendingPayCount}} 单）</view>
+        </view>
+        <view class="stat-cell">
+          <view class="stat-value danger">¥{{stats.refundCentsText}}</view>
+          <view class="stat-label">退款金额（{{stats.refundCount}} 单）</view>
+        </view>
+        <view class="stat-cell">
+          <view class="stat-value">{{stats.canceledCount}}</view>
+          <view class="stat-label">取消订单数</view>
+        </view>
+      </view>
+      <view class="muted stat-tip">待确认金额来自顾客标记「我已转账」但商家尚未确认的订单，确认后才计入已收款</view>
+    </view>
+
+    <view class="card">
+      <view class="section-title">菜品销量排行</view>
+      <view class="empty small" wx:if="{{!rank.length}}">今天还没有已收款的菜品销量</view>
+      <view class="rank-row" wx:for="{{rank}}" wx:key="dishId">
+        <view class="rank-no {{item.rank <= 3 ? 'rank-no--top' : ''}}">{{item.rank}}</view>
+        <view class="rank-name">{{item.name}}</view>
+        <view class="rank-qty">x{{item.qty}}</view>
+        <view class="rank-sales">¥{{item.salesText}}</view>
+      </view>
+    </view>
+
+    <view class="card">
+      <view class="section-title">收款记录（最近 50 条）</view>
+      <view class="empty small" wx:if="{{!records.length}}">暂无收款记录（确认转账收款后会生成）</view>
+      <view class="record-row" wx:for="{{records}}" wx:key="orderNo">
+        <view>
+          <view class="record-no">#{{item.orderNo}}</view>
+          <view class="muted">{{item.channelLabel}} · {{item.atText}} · 操作人 {{item.operator}}</view>
+        </view>
+        <view class="record-amount">¥{{item.amountText}}</view>
+      </view>
+    </view>
+  </block>
+</view>

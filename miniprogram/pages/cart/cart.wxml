@@ -1,0 +1,82 @@
+<view class="page">
+  <view class="loading" wx:if="{{loading}}">加载中…</view>
+
+  <block wx:if="{{!loading}}">
+    <view class="card" wx:if="{{lines.length}}">
+      <view class="row-between card-head">
+        <text class="title">已选 {{count}} 件</text>
+        <text class="link" bindtap="clearCart">清空</text>
+      </view>
+      <view class="line" wx:for="{{lines}}" wx:key="key">
+        <view class="line-main">
+          <view class="line-name">
+            {{item.name}}
+            <text class="tag tag--danger line-invalid" wx:if="{{item.invalid}}">{{item.invalid}}</text>
+          </view>
+          <view class="line-spec" wx:if="{{item.specText}}">{{item.specText}}</view>
+          <view class="line-price">¥{{item.unitText}} <text class="line-unit">/ 份</text></view>
+        </view>
+        <view class="line-right">
+          <view class="stepper">
+            <view class="step" data-key="{{item.key}}" data-delta="-1" bindtap="changeQty">−</view>
+            <view class="step-value">{{item.qty}}</view>
+            <view class="step" data-key="{{item.key}}" data-delta="1" bindtap="changeQty">＋</view>
+          </view>
+          <view class="line-total">¥{{item.lineTotalText}}</view>
+        </view>
+      </view>
+    </view>
+
+    <view class="empty" wx:if="{{!lines.length}}">
+      <view class="empty-title">购物车还是空的</view>
+      <view>回今日菜单挑点吃的吧</view>
+    </view>
+
+    <view class="card" wx:if="{{lines.length}}">
+      <view class="section-title">取餐时段（自提）</view>
+      <view class="slots">
+        <view
+          class="slot {{slotId === item.id ? 'slot--active' : ''}} {{item.full ? 'slot--full' : ''}}"
+          wx:for="{{slots}}"
+          wx:key="id"
+          data-id="{{item.id}}"
+          bindtap="selectSlot"
+        >
+          <view class="slot-label">{{item.label}}</view>
+          <view class="slot-left">{{item.full ? '已满' : '剩 ' + item.left + ' 单'}}</view>
+        </view>
+      </view>
+      <view class="muted" wx:if="{{!slots.length}}">商家今天还没有配置取餐时段</view>
+    </view>
+
+    <view class="card" wx:if="{{lines.length}}">
+      <view class="section-title">备注</view>
+      <textarea
+        class="remark"
+        placeholder="口味、餐具等要求（选填）"
+        maxlength="{{maxRemark}}"
+        value="{{remark}}"
+        bindinput="onRemarkInput"
+      ></textarea>
+      <view class="muted remark-count">{{remark.length}}/{{maxRemark}}</view>
+    </view>
+
+    <view class="card pay-info" wx:if="{{lines.length}}">
+      <view class="row-between">
+        <text class="cell-label">收款方式</text>
+        <text class="cell-value">{{paySettings.payModeLabel}}</text>
+      </view>
+      <view class="pay-hint">{{payHint}}</view>
+    </view>
+
+    <view class="submit-bar safe-bottom" wx:if="{{lines.length}}">
+      <view class="submit-total">
+        <text class="muted">合计</text>
+        <text class="submit-price">¥{{totalText}}</text>
+      </view>
+      <view class="btn btn--primary submit-btn {{submitting || !payUsable ? 'btn--disabled' : ''}}" bindtap="submit">
+        {{submitting ? '提交中…' : submitLabel}}
+      </view>
+    </view>
+  </block>
+</view>

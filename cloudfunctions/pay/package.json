@@ -1,0 +1,9 @@
+{
+  "name": "pay",
+  "version": "1.0.0",
+  "description": "支付云函数：mock 模拟支付 + cloudPay JSAPI 真实支付接入点",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3"
+  }
+}

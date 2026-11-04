@@ -1,0 +1,68 @@
+<view class="page">
+  <view class="loading" wx:if="{{loading}}">汇总打包清单…</view>
+
+  <block wx:if="{{!loading}}">
+    <view class="card summary">
+      <view class="summary-title">打包清单 · {{dateLabel}}</view>
+      <view class="summary-nums">
+        <view class="summary-item">
+          <view class="summary-value">{{summary.orderCount}}</view>
+          <view class="summary-label">待打包订单</view>
+        </view>
+        <view class="summary-item">
+          <view class="summary-value">{{summary.itemCount}}</view>
+          <view class="summary-label">菜品总份数</view>
+        </view>
+        <view class="summary-item">
+          <view class="summary-value">¥{{totalText}}</view>
+          <view class="summary-label">订单金额</view>
+        </view>
+      </view>
+      <view class="muted summary-tip">口径：今日「已收款且未完成」的订单（待接单 / 制作中 / 可取餐）</view>
+      <view class="summary-ops">
+        <view class="btn btn--primary btn--small" bindtap="copyText">复制清单文字</view>
+        <view class="btn btn--ghost btn--small" bindtap="toggleText">{{showText ? '收起文字' : '预览文字'}}</view>
+        <view class="btn btn--ghost btn--small" bindtap="load">刷新</view>
+      </view>
+    </view>
+
+    <view class="card" wx:if="{{showText}}">
+      <view class="section-title">可复制文本</view>
+      <view class="text-box">{{text}}</view>
+    </view>
+
+    <view class="card">
+      <view class="section-title">按菜品汇总</view>
+      <view class="empty small" wx:if="{{!groups.length}}">暂无待打包菜品</view>
+      <view class="group-row" wx:for="{{groups}}" wx:key="key">
+        <view class="group-name">
+          {{item.name}}
+          <text class="group-spec" wx:if="{{item.specText}}">{{item.specText}}</text>
+        </view>
+        <view class="group-qty">x{{item.qty}}</view>
+      </view>
+    </view>
+
+    <view class="card">
+      <view class="section-title">逐单勾选打包</view>
+      <view class="empty small" wx:if="{{!orders.length}}">暂无待打包订单</view>
+      <view class="pack-order" wx:for="{{orders}}" wx:key="orderId">
+        <view class="pack-head">
+          <view class="pack-main">
+            <view class="pack-no">#{{item.orderNo}} <text class="tag tag--info">{{item.slotLabel}}</text></view>
+            <view class="muted">共 {{item.itemCount}} 份{{item.remark ? ' · 备注：' + item.remark : ''}}</view>
+          </view>
+          <label class="pack-check">
+            <checkbox checked="{{item.packed}}" data-id="{{item.orderId}}" bindtap="togglePacked" />
+            <text>已打包</text>
+          </label>
+        </view>
+        <view class="pack-items">
+          <text class="pack-item" wx:for="{{item.items}}" wx:for-item="line" wx:key="index">
+            {{line.name}}{{line.specText ? '(' + line.specText + ')' : ''}} x{{line.qty}}
+          </text>
+        </view>
+      </view>
+    </view>
+  </block>
+</view>

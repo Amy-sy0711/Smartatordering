@@ -1,0 +1,153 @@
+.loading {
+  padding: 120rpx 0;
+  text-align: center;
+  color: #8b93a1;
+}
+
+.field {
+  display: flex;
+  align-items: center;
+  padding: 20rpx 0;
+  border-bottom: 1rpx solid #f0f2f6;
+}
+
+.field-label {
+  width: 200rpx;
+  color: #5c6472;
+  font-size: 26rpx;
+}
+
+.field-input {
+  flex: 1;
+  font-size: 28rpx;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  padding: 16rpx 0;
+}
+
+.chip {
+  padding: 8rpx 20rpx;
+  margin: 0 12rpx 12rpx 0;
+  border-radius: 999rpx;
+  background: #f0f2f6;
+  color: #5c6472;
+  font-size: 24rpx;
+}
+
+.chip--active {
+  background: #fff1e6;
+  color: #e85d04;
+}
+
+.image-line {
+  flex: 1;
+  display: flex;
+  align-items: center;
+}
+
+.dish-image {
+  width: 120rpx;
+  height: 120rpx;
+  border-radius: 12rpx;
+  margin-right: 20rpx;
+  background: #f0f2f6;
+}
+
+.image-ops {
+  display: flex;
+  gap: 12rpx;
+}
+
+.switch-row {
+  display: flex;
+  padding-top: 24rpx;
+}
+
+.switch-item {
+  display: flex;
+  align-items: center;
+  margin-right: 36rpx;
+  font-size: 26rpx;
+}
+
+.switch-item switch {
+  margin-right: 8rpx;
+  transform: scale(0.8);
+}
+
+.spec-tip {
+  margin-bottom: 16rpx;
+  line-height: 1.5;
+}
+
+.spec-group {
+  margin-top: 16rpx;
+  padding: 20rpx;
+  border-radius: 16rpx;
+  background: #fafbfc;
+  border: 1rpx solid #f0f2f6;
+}
+
+.spec-head {
+  display: flex;
+  align-items: center;
+}
+
+.spec-name {
+  flex: 1;
+  font-size: 28rpx;
+  font-weight: 600;
+}
+
+.spec-del {
+  color: #c62828;
+  font-size: 24rpx;
+  padding: 8rpx 0 8rpx 16rpx;
+}
+
+.spec-required {
+  margin: 12rpx 0;
+}
+
+.option-row {
+  display: flex;
+  align-items: center;
+  margin-bottom: 12rpx;
+}
+
+.option-label {
+  flex: 1;
+  padding: 12rpx 16rpx;
+  margin-right: 12rpx;
+  background: #ffffff;
+  border-radius: 10rpx;
+  font-size: 26rpx;
+}
+
+.option-delta {
+  width: 170rpx;
+  padding: 12rpx 16rpx;
+  margin-right: 12rpx;
+  background: #ffffff;
+  border-radius: 10rpx;
+  font-size: 26rpx;
+}
+
+.option-del {
+  color: #8b93a1;
+  font-size: 34rpx;
+  padding: 0 8rpx;
+}
+
+.add-option {
+  margin-top: 8rpx;
+  color: #e85d04;
+  font-size: 24rpx;
+}
+
+.save-btn {
+  margin-top: 12rpx;
+}

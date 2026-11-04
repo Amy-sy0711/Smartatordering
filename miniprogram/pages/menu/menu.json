@@ -1,0 +1,7 @@
+{
+  "usingComponents": {
+    "spec-picker": "../../components/spec-picker/index"
+  },
+  "enablePullDownRefresh": true,
+  "navigationBarTitleText": "今日菜单"
+}

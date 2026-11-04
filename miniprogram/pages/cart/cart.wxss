@@ -1,0 +1,178 @@
+.card-head {
+  margin-bottom: 8rpx;
+}
+
+.link {
+  font-size: 24rpx;
+  color: #8b93a1;
+}
+
+.line {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20rpx 0;
+  border-top: 1rpx solid #f2f4f8;
+}
+
+.line-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.line-name {
+  font-size: 28rpx;
+  font-weight: 600;
+}
+
+.line-invalid {
+  margin-left: 10rpx;
+}
+
+.line-spec {
+  font-size: 22rpx;
+  color: #8b93a1;
+  margin-top: 4rpx;
+}
+
+.line-price {
+  font-size: 24rpx;
+  color: #e85d04;
+  margin-top: 8rpx;
+}
+
+.line-unit {
+  color: #8b93a1;
+  font-size: 22rpx;
+}
+
+.line-right {
+  text-align: right;
+  margin-left: 16rpx;
+}
+
+.stepper {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.step {
+  width: 52rpx;
+  height: 52rpx;
+  line-height: 50rpx;
+  text-align: center;
+  border-radius: 50%;
+  background: #f4f5f8;
+  color: #1f2430;
+}
+
+.step-value {
+  width: 68rpx;
+  text-align: center;
+  font-size: 28rpx;
+}
+
+.line-total {
+  font-size: 26rpx;
+  color: #1f2430;
+  margin-top: 10rpx;
+}
+
+.slots {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.slot {
+  width: calc(33.33% - 16rpx);
+  margin: 0 16rpx 16rpx 0;
+  padding: 16rpx 0;
+  border-radius: 14rpx;
+  background: #f7f8fa;
+  text-align: center;
+  border: 1rpx solid transparent;
+}
+
+.slot--active {
+  background: #fff1e5;
+  border-color: #e85d04;
+}
+
+.slot--full {
+  opacity: 0.45;
+}
+
+.slot-label {
+  font-size: 26rpx;
+  font-weight: 600;
+}
+
+.slot-left {
+  font-size: 20rpx;
+  color: #8b93a1;
+  margin-top: 6rpx;
+}
+
+.remark {
+  width: 100%;
+  min-height: 120rpx;
+  background: #f7f8fa;
+  border-radius: 12rpx;
+  padding: 18rpx;
+  box-sizing: border-box;
+  font-size: 26rpx;
+}
+
+.remark-count {
+  text-align: right;
+  margin-top: 8rpx;
+}
+
+.pay-hint {
+  font-size: 24rpx;
+  color: #8b93a1;
+  line-height: 1.6;
+  margin-top: 12rpx;
+}
+
+.submit-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18rpx 24rpx;
+  box-shadow: 0 -4rpx 20rpx rgba(0, 0, 0, 0.06);
+}
+
+.submit-total {
+  display: flex;
+  align-items: baseline;
+}
+
+.submit-price {
+  font-size: 38rpx;
+  font-weight: 600;
+  color: #e85d04;
+  margin-left: 10rpx;
+}
+
+.submit-btn {
+  width: 360rpx;
+  height: 84rpx;
+  border-radius: 999rpx;
+}
+
+.page {
+  padding-bottom: 200rpx;
+}
+
+.loading {
+  padding: 100rpx 0;
+  text-align: center;
+  color: #8b93a1;
+}

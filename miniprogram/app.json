@@ -1,0 +1,23 @@
+{
+  "pages": [
+    "pages/menu/menu",
+    "pages/cart/cart",
+    "pages/orders/orders",
+    "pages/order-detail/order-detail",
+    "pages/merchant/index/index",
+    "pages/merchant/menu/menu",
+    "pages/merchant/dish/dish",
+    "pages/merchant/board/board",
+    "pages/merchant/packing/packing",
+    "pages/merchant/stats/stats",
+    "pages/merchant/settings/settings"
+  ],
+  "window": {
+    "backgroundTextStyle": "dark",
+    "navigationBarBackgroundColor": "#ffffff",
+    "navigationBarTitleText": "今日菜单",
+    "navigationBarTextStyle": "black",
+    "backgroundColor": "#f5f5f5"
+  },
+  "sitemapLocation": "sitemap.json"
+}

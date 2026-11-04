@@ -1,0 +1,53 @@
+<view class="mask" catchtap="close" catchtouchmove="stop"></view>
+<view class="sheet">
+  <view class="sheet-head">
+    <image class="sheet-img" wx:if="{{dish.imageUrl}}" src="{{dish.imageUrl}}" mode="aspectFill"></image>
+    <view class="sheet-info">
+      <view class="sheet-name">{{dish.name}}</view>
+      <view class="sheet-price">¥{{unitText}}<text class="sheet-delta" wx:if="{{unitCents > dish.priceCents}}">（含规格加价）</text></view>
+    </view>
+    <view class="sheet-close" catchtap="close">✕</view>
+  </view>
+
+  <scroll-view class="sheet-body" scroll-y="true">
+    <view class="group" wx:for="{{groups}}" wx:key="id" wx:for-item="group" wx:for-index="gi">
+      <view class="group-name">
+        {{group.name}}
+        <text class="group-req" wx:if="{{group.required}}">必选</text>
+        <text class="group-req muted" wx:else>可选</text>
+      </view>
+      <view class="options">
+        <view
+          class="option {{group.selected === oi ? 'option--active' : ''}}"
+          wx:for="{{group.options}}"
+          wx:key="id"
+          wx:for-item="option"
+          wx:for-index="oi"
+          data-gi="{{gi}}"
+          data-oi="{{oi}}"
+          bindtap="selectOption"
+        >
+          {{option.label}}<text class="option-delta" wx:if="{{option.deltaText}}">{{option.deltaText}}</text>
+        </view>
+      </view>
+    </view>
+
+    <view class="group">
+      <view class="group-name">数量</view>
+      <view class="stepper">
+        <view class="step {{qty <= 1 ? 'step--disabled' : ''}}" bindtap="minus">−</view>
+        <view class="step-value">{{qty}}</view>
+        <view class="step" bindtap="plus">＋</view>
+      </view>
+    </view>
+
+    <view class="tip" wx:if="{{invalidTip}}">{{invalidTip}}</view>
+  </scroll-view>
+
+  <view class="sheet-foot">
+    <view class="foot-total">
+      合计 <text class="foot-price">¥{{totalText}}</text>
+    </view>
+    <view class="btn btn--primary foot-btn" bindtap="confirm">加入购物车</view>
+  </view>
+</view>

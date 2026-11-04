@@ -1,0 +1,64 @@
+<view class="page">
+  <view class="loading" wx:if="{{loading}}">正在校验商家权限…</view>
+
+  <block wx:if="{{!loading && info}}">
+    <view class="head-card">
+      <view class="head-title">商家中心</view>
+      <view class="head-sub">
+        今日菜单：{{menuPublished ? '已发布' : '未发布'}} · 收款方式：{{payModeText}}
+      </view>
+      <view class="head-openid" bindtap="copyOpenid">
+        openid：<text class="mono">{{info.openid || '未获取到'}}</text>
+        <text class="copy">复制</text>
+      </view>
+      <view class="head-tip" wx:if="{{info.bootstrapped}}">已通过演示模式自动加入白名单（请尽快在 config.js 中固定 openid）</view>
+    </view>
+
+    <view class="card summary" wx:if="{{todayStats}}">
+      <view class="summary-item">
+        <view class="summary-value">¥{{todayStats.paidCentsText}}</view>
+        <view class="summary-label">已收款</view>
+      </view>
+      <view class="summary-item">
+        <view class="summary-value">{{todayStats.paidCount}}</view>
+        <view class="summary-label">已收款单数</view>
+      </view>
+      <view class="summary-item">
+        <view class="summary-value">{{todayStats.pendingConfirmCount}}</view>
+        <view class="summary-label">待确认收款</view>
+      </view>
+      <view class="summary-item">
+        <view class="summary-value">{{todayStats.pendingPayCount}}</view>
+        <view class="summary-label">待付款</view>
+      </view>
+    </view>
+
+    <view class="grid">
+      <view class="grid-item" bindtap="goMenu">
+        <view class="grid-icon">📋</view>
+        <view class="grid-title">菜单管理</view>
+        <view class="grid-desc">菜品上下架 / 发布今日菜单</view>
+      </view>
+      <view class="grid-item" bindtap="goBoard">
+        <view class="grid-icon">🧾</view>
+        <view class="grid-title">订单看板</view>
+        <view class="grid-desc">确认收款 / 接单 / 出餐 / 完成</view>
+      </view>
+      <view class="grid-item" bindtap="goPacking">
+        <view class="grid-icon">📦</view>
+        <view class="grid-title">打包清单</view>
+        <view class="grid-desc">按菜品汇总数量，逐单勾选</view>
+      </view>
+      <view class="grid-item" bindtap="goStats">
+        <view class="grid-icon">💰</view>
+        <view class="grid-title">当日收益</view>
+        <view class="grid-desc">已收款 / 待确认 / 销量排行</view>
+      </view>
+      <view class="grid-item" bindtap="goSettings">
+        <view class="grid-icon">⚙️</view>
+        <view class="grid-title">收款设置</view>
+        <view class="grid-desc">转账二维码 / 支付方式切换</view>
+      </view>
+    </view>
+  </block>
+</view>

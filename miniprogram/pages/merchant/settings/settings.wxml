@@ -1,0 +1,67 @@
+<view class="page">
+  <view class="loading" wx:if="{{loading}}">加载收款设置…</view>
+
+  <block wx:if="{{!loading}}">
+    <view class="card">
+      <view class="section-title">支付方式（云端可配置）</view>
+      <view class="mode-list">
+        <view
+          class="mode-row {{payMode === item.value ? 'mode-row--active' : ''}}"
+          wx:for="{{modes}}"
+          wx:key="value"
+          data-value="{{item.value}}"
+          bindtap="selectMode"
+        >
+          <view class="mode-main">
+            <view class="mode-label">{{item.label}}</view>
+            <view class="muted mode-desc" wx:if="{{item.value === 'transfer'}}">顾客转账后点「我已转账」，你在订单看板确认收款后才开始备餐</view>
+            <view class="muted mode-desc" wx:if="{{item.value === 'jsapi'}}">小程序内直接调起微信支付，需配置商户号与 cloudPay</view>
+            <view class="muted mode-desc" wx:if="{{item.value === 'mock'}}">仅开发调试：下单即置为已收款，正式环境不要使用</view>
+          </view>
+          <view class="radio {{payMode === item.value ? 'radio--on' : ''}}"></view>
+        </view>
+      </view>
+      <view class="warn-box" wx:if="{{warning}}">{{warning}}</view>
+      <view class="muted jsapi-note">
+        jsapi 配置状态：{{jsapiConfigured ? '已配置商户号' : '未配置（填写 cloudfunctions/pay/config.js 的 WXPAY 段）'}}
+      </view>
+    </view>
+
+    <view class="card" wx:if="{{payMode === 'transfer'}}">
+      <view class="section-title">转账收款信息</view>
+
+      <view class="field">
+        <text class="field-label">收款人</text>
+        <input class="field-input" value="{{transfer.payeeName}}" maxlength="40" data-field="payeeName" bindinput="onInput" placeholder="如 王阿姨" />
+      </view>
+
+      <view class="field field--block">
+        <text class="field-label">转账提示文案</text>
+        <textarea class="field-textarea" value="{{transfer.tipText}}" maxlength="200" data-field="tipText" bindinput="onInput" placeholder="转账后请点「我已转账」，商家确认收款后开始备餐" />
+      </view>
+
+      <view class="qr-line">
+        <image class="qr-image" wx:if="{{transfer.qrImageUrl}}" src="{{transfer.qrImageUrl}}" mode="aspectFit" bindtap="previewQr"></image>
+        <view class="qr-empty" wx:else>未上传收款二维码</view>
+        <view class="qr-ops">
+          <view class="btn btn--ghost btn--small" bindtap="chooseQr">{{uploading ? '上传中…' : '上传二维码'}}</view>
+          <view class="btn btn--ghost btn--small" wx:if="{{transfer.qrImageUrl}}" bindtap="clearQr">清除</view>
+        </view>
+      </view>
+      <view class="muted qr-tip">顾客下单后会看到这张收款码与提示文案</view>
+    </view>
+
+    <view class="card" wx:if="{{payMode === 'jsapi'}}">
+      <view class="section-title">jsapi 接入说明</view>
+      <view class="muted jsapi-steps">1. 在微信支付商户平台开通 JSAPI 支付，取得商户号（mchid）与 API 证书/密钥
+2. 在云开发控制台绑定商户号，并开通 cloudPay
+3. 把商户号、云开发环境 ID 填到 cloudfunctions/pay/config.js 的 WXPAY 段，WXPAY.ENABLED 设为 true
+4. 部署 pay 与 paynotify 云函数；支付回调由 paynotify 处理</view>
+      <view class="warn-box" wx:if="{{!jsapiConfigured}}">当前未配置商户号，顾客点击支付会收到明确的「支付未配置」提示，不会白屏</view>
+    </view>
+
+    <view class="btn btn--primary btn--block save-btn {{saving ? 'btn--disabled' : ''}}" bindtap="save">
+      {{saving ? '保存中…' : '保存收款设置'}}
+    </view>
+  </block>
+</view>

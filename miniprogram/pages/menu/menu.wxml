@@ -1,0 +1,73 @@
+<view class="page menu-page">
+  <view class="hero" wx:if="{{published}}">
+    <view class="hero-top">
+      <text class="hero-title">{{menu.title}}</text>
+      <text class="hero-date">{{dateLabel}}</text>
+    </view>
+    <view class="hero-sub" wx:if="{{shop}}">{{shop.pickupPlace}} · {{shop.pickupNote}}</view>
+    <view class="hero-slots">
+      <view class="slot-chip {{slot.full ? 'slot-chip--full' : ''}}" wx:for="{{slots}}" wx:key="id">
+        {{slot.label}} <text class="slot-left">{{slot.full ? '已满' : '剩' + slot.left}}</text>
+      </view>
+    </view>
+  </view>
+
+  <view class="card pay-hint" wx:if="{{published}}">
+    <text class="pay-hint-mode">{{paySettings.payModeLabel}}</text>
+    <text class="pay-hint-text">{{paySettings.payMode === 'transfer' ? paySettings.transfer.tipText : (paySettings.payMode === 'jsapi' ? '下单后直接在小程序内微信支付' : '开发调试：下单后模拟支付')}}</text>
+  </view>
+
+  <view class="loading" wx:if="{{loading}}">菜单加载中…</view>
+
+  <view class="empty" wx:if="{{!loading && !published}}">
+    <view class="empty-title">商家还没发布今日菜单</view>
+    <view>发布后下拉刷新即可点餐</view>
+    <button class="btn btn--ghost empty-btn" bindtap="refresh">刷新试试</button>
+  </view>
+
+  <block wx:if="{{published}}">
+    <view class="cat" wx:for="{{categories}}" wx:key="name" wx:for-item="cat">
+      <view class="cat-title">{{cat.name}}</view>
+      <view
+        class="dish {{dish.soldOut ? 'dish--soldout' : ''}}"
+        wx:for="{{cat.dishes}}"
+        wx:key="_id"
+        wx:for-item="dish"
+        data-id="{{dish._id}}"
+        bindtap="onDishTap"
+      >
+        <image class="dish-img" wx:if="{{dish.imageUrl}}" src="{{dish.imageUrl}}" mode="aspectFill"></image>
+        <view class="dish-img dish-img--ph" wx:else>{{dish.initial}}</view>
+        <view class="dish-body">
+          <view class="dish-name">{{dish.name}}</view>
+          <view class="dish-spec" wx:if="{{dish.specs.length}}">可选规格 {{dish.specs.length}} 组</view>
+          <view class="dish-price">¥{{dish.priceText}}</view>
+        </view>
+        <view class="dish-add" wx:if="{{!dish.soldOut}}">＋</view>
+        <view class="dish-sold" wx:else>售罄</view>
+      </view>
+    </view>
+
+    <view class="footer-links">
+      <text class="footer-link" bindtap="goOrders">我的订单</text>
+      <text class="footer-link" wx:if="{{isMerchant}}" bindtap="goMerchant">商家入口</text>
+      <text class="footer-link footer-link--demo" wx:elif="{{canBootstrap}}" bindtap="goMerchant">商家入口（演示模式）</text>
+    </view>
+  </block>
+
+  <view class="cartbar" wx:if="{{published}}">
+    <view class="cartbar-left" bindtap="goOrders">
+      <text class="cartbar-icon">🧺</text>
+      <text class="cartbar-count">{{cartCount}} 件</text>
+      <text class="cartbar-total">¥{{cartTotalText}}</text>
+    </view>
+    <view class="cartbar-btn {{cartCount ? '' : 'cartbar-btn--disabled'}}" bindtap="goCart">去结算</view>
+  </view>
+
+  <spec-picker
+    wx:if="{{pickerVisible}}"
+    dish="{{pickerDish}}"
+    bind:close="onPickerClose"
+    bind:confirm="onPickerConfirm"
+  />
+</view>
