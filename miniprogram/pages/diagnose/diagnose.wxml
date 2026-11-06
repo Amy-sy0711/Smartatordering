@@ -1,0 +1,42 @@
+<view class="page diagnose-page">
+  <view class="card diagnose-head">
+    <view class="title">环境自检</view>
+    <view class="muted">逐项检查云开发环境、云函数、数据库集合与今日菜单</view>
+    <view class="tag-row">
+      <text class="tag tag--info">模式：{{modeLabel}}</text>
+      <text class="tag tag--muted">CLOUD_ENV：{{cloudEnv || '空'}}</text>
+    </view>
+    <view class="summary {{failCount ? 'summary--fail' : 'summary--ok'}}">{{summaryText || '检查中…'}}</view>
+    <view class="actions">
+      <button class="btn btn--primary btn--small action-btn" bindtap="run" loading="{{running}}">重新自检</button>
+      <button class="btn btn--ghost btn--small action-btn" bindtap="copyReport">复制报告</button>
+    </view>
+  </view>
+
+  <view class="card identity-card" wx:if="{{openid}}">
+    <view class="identity-head">
+      <view class="identity-label">我的 openid</view>
+      <text class="copy" bindtap="copyOpenid">复制</text>
+    </view>
+    <view class="mono identity-value" selectable>{{openid}}</view>
+    <view class="identity-role">是否商家：{{isMerchant ? '是（启动后自动进入商家看板）' : '否（启动后进入顾客端菜单）'}}</view>
+    <button class="btn btn--ghost btn--block claim-btn" wx:if="{{canSelfClaim}}" bindtap="claimSelf">
+      将我的 openid 加为商家（仅空集合时一次性生效）
+    </button>
+    <view class="identity-note">上线前请把 ALLOW_SELF_CLAIM 改为 false，并手动维护 merchant_admins</view>
+  </view>
+
+  <view class="card check" wx:for="{{checks}}" wx:key="key">
+    <view class="check-head">
+      <view class="check-title">{{item.title}}</view>
+      <text class="tag {{item.status === 'pass' ? 'tag--success' : (item.status === 'fail' ? 'tag--danger' : 'tag--warn')}}">{{item.statusText}}</text>
+    </view>
+    <view class="check-detail" selectable>{{item.detail}}</view>
+    <view class="check-fix" wx:if="{{item.fix}}" selectable>修复：{{item.fix}}</view>
+  </view>
+
+  <view class="card actions-card">
+    <button class="btn btn--ghost btn--block action-row" bindtap="toggleMode">{{isLocal ? '切回云端模式（清空本地演示数据）' : '用本地演示模式（数据不写云端）'}}</button>
+    <button class="btn btn--block action-row" bindtap="goHome">返回首页</button>
+  </view>
+</view>

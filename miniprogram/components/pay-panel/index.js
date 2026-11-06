@@ -1,4 +1,4 @@
-const api = require('../../utils/api')
+const api = require('../../utils/data-source')
 const payment = require('../../utils/payment')
 
 Component({

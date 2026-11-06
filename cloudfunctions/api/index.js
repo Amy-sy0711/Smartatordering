@@ -29,6 +29,7 @@ exports.main = async (event) => {
     cloud,
     openid: wxContext.OPENID || '',
     appid: wxContext.APPID || '',
+    envId: wxContext.ENV || process.env.TCB_ENV || '',
     payload
   }
 

@@ -97,3 +97,56 @@
   text-align: center;
   color: #8b93a1;
 }
+
+.access-error {
+  border-left: 8rpx solid #c62828;
+}
+
+.access-title {
+  font-size: 32rpx;
+  font-weight: 600;
+  color: #c62828;
+  margin-bottom: 12rpx;
+}
+
+.access-msg {
+  font-size: 24rpx;
+  color: #5c6472;
+  line-height: 1.6;
+  word-break: break-all;
+}
+
+.access-openid {
+  margin-top: 16rpx;
+  background: #f7f8fa;
+  border-radius: 10rpx;
+  padding: 14rpx 16rpx;
+  font-size: 22rpx;
+  word-break: break-all;
+}
+
+.access-hint {
+  margin-top: 16rpx;
+  font-size: 22rpx;
+  color: #b26a00;
+  line-height: 1.6;
+  background: #fff8ec;
+  border-radius: 10rpx;
+  padding: 12rpx 16rpx;
+}
+
+.access-actions {
+  display: flex;
+  flex-wrap: wrap;
+  margin-top: 18rpx;
+}
+
+.access-btn {
+  margin: 0 16rpx 12rpx 0;
+}
+
+.access-mode {
+  margin-top: 6rpx;
+  font-size: 22rpx;
+  color: #8b93a1;
+}

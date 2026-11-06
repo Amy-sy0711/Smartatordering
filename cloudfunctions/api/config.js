@@ -16,8 +16,13 @@ const MERCHANT_OPENIDS = [
 ]
 
 // 演示用：白名单为空时，允许第一个进入「商家入口」的人自助成为商家
-// （openid 会写入 merchant_admins 集合）。正式上线前必须：1) 填上面白名单 2) 把这里改为 false
-const ALLOW_AUTO_BOOTSTRAP = true
+// （openid 会写入 merchant_admins 集合）。默认关闭：商家必须显式配置，
+// 避免任何人首次打开小程序就被自动识别为商家。
+const ALLOW_AUTO_BOOTSTRAP = false
+
+// 一次性自助成为商家：仅当 merchant_admins 集合为空、且本人在自检页手动点击时生效。
+// 正式上线请改为 false（或配置好商家后关闭）。
+const ALLOW_SELF_CLAIM = true
 
 // 下单规则
 const MAX_QTY_PER_ITEM = 20   // 同一菜品（同规格）单行最大数量
@@ -56,6 +61,7 @@ module.exports = {
   MERCHANT_ID,
   MERCHANT_OPENIDS,
   ALLOW_AUTO_BOOTSTRAP,
+  ALLOW_SELF_CLAIM,
   MAX_QTY_PER_ITEM,
   MAX_CART_LINES,
   MAX_REMARK_LENGTH,

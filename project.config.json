@@ -1,7 +1,7 @@
 {
   "description": "微信点餐小程序 MVP（原生小程序 + 云开发）",
   "projectname": "wechat-order-mvp",
-  "appid": "touristappid",
+  "appid": "wxa1c01ec63c3d4e59",
   "compileType": "miniprogram",
   "miniprogramRoot": "miniprogram/",
   "cloudfunctionRoot": "cloudfunctions/",
@@ -41,7 +41,16 @@
     "disableUseStrict": false,
     "minifyWXML": true,
     "showES6CompileOption": false,
-    "useCompilerPlugins": false
+    "useCompilerPlugins": false,
+    "compileWorklet": false,
+    "localPlugins": false,
+    "condition": false
   },
-  "condition": {}
+  "condition": {},
+  "simulatorPluginLibVersion": {},
+  "packOptions": {
+    "ignore": [],
+    "include": []
+  },
+  "editorSetting": {}
 }

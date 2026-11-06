@@ -238,6 +238,54 @@ if (!apiWxpay || !payWxpay) {
   }
 }
 
+/* -------------------- 11. 对象字面量缺少分号的 ASI 隐患 -------------------- */
+walk(ROOT, (file) => {
+  if (!file.endsWith('.js') || rel(file).startsWith('tests/')) return
+  const lines = read(file).split(/\r?\n/)
+  for (let i = 0; i < lines.length - 1; i += 1) {
+    const current = lines[i]
+    const next = lines[i + 1]
+    if (/=\s*(\{\}|\[\])\s*$/.test(current) && /^\s*[\(\[]/.test(next)) {
+      fail(
+        '疑似 ASI 隐患（对象被当函数调用）：' +
+          rel(file) + ':' + (i + 1) + ' 「' + current.trim() + '」 下一行以 ( 或 [ 开头'
+      )
+    }
+  }
+})
+
+/* -------- 12. WXML 高风险模板表达式提示（不阻断，人工核对） -------- */
+const templateRisks = []
+walk(MP_ROOT, (file) => {
+  if (!file.endsWith('.wxml')) return
+  const source = read(file)
+  const pattern = /\{\{[^}]*\?[^}]*\.\s*[A-Za-z_$][^\s}]*\s*\}\}/g
+  let match = pattern.exec(source)
+  while (match) {
+    const line = source.slice(0, match.index).split('\n').length
+    templateRisks.push(rel(file) + ':' + line + ' → ' + match[0].replace(/\s+/g, ' '))
+    match = pattern.exec(source)
+  }
+})
+if (templateRisks.length) {
+  console.log('\n模板高风险表达式（可能输出 undefined，需人工核对）：')
+  templateRisks.forEach((item) => console.log('  - ' + item))
+}
+
+/* ---------- 13. 商家页面必须接入角色守卫（禁止路径直达） ---------- */
+const merchantPagesDir = path.join(MP_ROOT, 'pages', 'merchant')
+if (fs.existsSync(merchantPagesDir)) {
+  for (const entry of fs.readdirSync(merchantPagesDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue
+    const jsFile = path.join(merchantPagesDir, entry.name, entry.name + '.js')
+    if (!fs.existsSync(jsFile)) continue
+    const source = read(jsFile)
+    if (source.indexOf('merchant-guard') < 0 || source.indexOf('requireMerchant') < 0) {
+      fail('商家页缺少角色守卫（非商家可直接路径直达）：' + rel(jsFile))
+    }
+  }
+}
+
 /* ------------------------------- 结果 ------------------------------- */
 console.log('静态校验统计：')
 console.log('  JS 文件        ' + stats.js)

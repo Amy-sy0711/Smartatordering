@@ -1,4 +1,5 @@
 <view class="page">
+  <merchant-exit />
   <view class="board-head">
     <view class="title">订单看板</view>
     <view class="muted">{{dateLabel}} · 按时间倒序 · 下拉刷新</view>

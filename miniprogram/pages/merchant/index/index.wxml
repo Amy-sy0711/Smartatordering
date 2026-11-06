@@ -1,17 +1,34 @@
 <view class="page">
+  <merchant-exit />
+
   <view class="loading" wx:if="{{loading}}">正在校验商家权限…</view>
+
+  <view class="card access-error" wx:if="{{!loading && accessError}}">
+    <view class="access-title">{{accessError.title}}</view>
+    <view class="access-msg">{{accessError.code}}：{{accessError.message}}</view>
+    <view class="access-openid" bindtap="copyOpenid">
+      <text class="mono" selectable>我的 openid：{{accessError.openid || '未获取到（请用小程序模式运行）'}}</text>
+      <text class="copy">复制</text>
+    </view>
+    <view class="access-hint">{{accessError.hint}}</view>
+    <view class="access-actions">
+      <button class="btn btn--primary btn--small access-btn" bindtap="retryEnter">重试</button>
+      <button class="btn btn--ghost btn--small access-btn" bindtap="goDiagnose">打开自检</button>
+      <button class="btn btn--ghost btn--small access-btn" bindtap="goHome">返回首页</button>
+    </view>
+    <view class="access-mode">当前：{{modeLabel}}</view>
+  </view>
 
   <block wx:if="{{!loading && info}}">
     <view class="head-card">
       <view class="head-title">商家中心</view>
       <view class="head-sub">
-        今日菜单：{{menuPublished ? '已发布' : '未发布'}} · 收款方式：{{payModeText}}
+        今日菜单：{{menuPublished ? '已发布' : '未发布'}} · 收款方式：{{payModeText}} · {{modeLabel}}
       </view>
       <view class="head-openid" bindtap="copyOpenid">
         openid：<text class="mono">{{info.openid || '未获取到'}}</text>
         <text class="copy">复制</text>
       </view>
-      <view class="head-tip" wx:if="{{info.bootstrapped}}">已通过演示模式自动加入白名单（请尽快在 config.js 中固定 openid）</view>
     </view>
 
     <view class="card summary" wx:if="{{todayStats}}">
@@ -58,6 +75,11 @@
         <view class="grid-icon">⚙️</view>
         <view class="grid-title">收款设置</view>
         <view class="grid-desc">转账二维码 / 支付方式切换</view>
+      </view>
+      <view class="grid-item" bindtap="goDiagnose">
+        <view class="grid-icon">🩺</view>
+        <view class="grid-title">环境自检</view>
+        <view class="grid-desc">云函数 / 集合 / 今日菜单检查</view>
       </view>
     </view>
   </block>

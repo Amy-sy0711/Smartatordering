@@ -1,0 +1,6 @@
+<view class="entry-page">
+  <view class="entry-logo">🍚</view>
+  <view class="entry-title">智在点餐</view>
+  <view class="entry-status">{{status}}</view>
+  <view class="entry-tip">登录 → whoami → 自动进入商家端或顾客端</view>
+</view>

@@ -1,4 +1,5 @@
 <view class="page">
+  <merchant-exit />
   <view class="loading" wx:if="{{loading}}">加载中…</view>
 
   <block wx:if="{{!loading}}">
@@ -55,8 +56,10 @@
 
     <view class="card">
       <view class="row-between">
-        <view class="title">菜品库（{{dishes.length}}）</view>
-        <text class="muted">售罄/下架会同步影响顾客端</text>
+        <view>
+          <view class="title">菜品库（{{dishes.length}}）</view>
+          <view class="muted">这里只是菜品库；要出现在顾客端，需加入「今日菜单」</view>
+        </view>
       </view>
       <view class="empty small" wx:if="{{!dishes.length}}">还没有菜品，点右上「新增菜品」开始</view>
       <view class="dish-row" wx:for="{{dishes}}" wx:key="_id">
@@ -64,6 +67,7 @@
           <view class="dish-name">
             {{item.name}}
             <text class="tag" wx:if="{{item.category}}">{{item.category}}</text>
+            <text class="tag {{item.inToday ? 'tag--success' : 'tag--warn'}}">{{item.inToday ? '今日菜单中' : '未加入今日菜单'}}</text>
           </view>
           <view class="muted dish-price">¥{{item.priceText}} · {{item.specs.length ? item.specs.length + ' 组规格' : '无规格'}}</view>
           <view class="dish-switches">
@@ -78,6 +82,7 @@
           </view>
         </view>
         <view class="dish-ops">
+          <view class="op op-primary" wx:if="{{!item.inToday}}" data-id="{{item._id}}" bindtap="addToToday">加入今日菜单</view>
           <view class="op" data-id="{{item._id}}" bindtap="editDish">编辑</view>
           <view class="op op-danger" data-id="{{item._id}}" data-name="{{item.name}}" bindtap="deleteDish">删除</view>
         </view>

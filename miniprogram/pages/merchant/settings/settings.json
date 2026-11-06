@@ -1,4 +1,6 @@
 {
   "navigationBarTitleText": "收款设置",
-  "usingComponents": {}
+  "usingComponents": {
+    "merchant-exit": "/components/merchant-exit/index"
+  }
 }

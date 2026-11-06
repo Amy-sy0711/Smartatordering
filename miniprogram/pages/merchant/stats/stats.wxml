@@ -1,4 +1,5 @@
 <view class="page">
+  <merchant-exit />
   <view class="row-between date-bar">
     <view>
       <view class="title">当日收益</view>

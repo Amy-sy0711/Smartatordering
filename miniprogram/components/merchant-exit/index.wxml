@@ -1,0 +1,1 @@
+<view class="merchant-exit" bindtap="onPreviewCustomer">查看顾客端 →</view>

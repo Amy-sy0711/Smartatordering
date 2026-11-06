@@ -1,5 +1,6 @@
-const api = require('../../../utils/api')
+const api = require('../../../utils/data-source')
 const money = require('../../../utils/money')
+const guard = require('../../../utils/merchant-guard')
 
 Page({
   data: {
@@ -15,7 +16,7 @@ Page({
   },
 
   onShow() {
-    this.load()
+    guard.requireMerchant().then(() => this.load()).catch(() => {})
   },
 
   load() {
@@ -35,7 +36,7 @@ Page({
       })
       .catch((err) => {
         this.setData({ loading: false })
-        api.showError(err, '打包清单加载失败')
+        api.showError(err, '打包清单加载失败', { onRetry: () => this.load() })
       })
   },
 

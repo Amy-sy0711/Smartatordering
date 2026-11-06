@@ -40,20 +40,47 @@ function normalizeSlots(rawSlots, defaultLimit) {
   return result
 }
 
+/** 读取任意历史形态的时段数组，统一成 { id, label, limit } */
+function readSlots(rawSlots, defaultLimit) {
+  const fallbackLimit = Number.isInteger(defaultLimit) && defaultLimit > 0 ? defaultLimit : DEFAULT_SLOT_LIMIT
+  if (!Array.isArray(rawSlots)) return []
+  return rawSlots.map((raw, index) => {
+    if (typeof raw === 'string') {
+      return { id: 's' + (index + 1), label: raw.trim() || '取餐时段', limit: fallbackLimit }
+    }
+    const src = raw || {}
+    const rawLimit = Number(src.limit)
+    return {
+      id: src.id ? String(src.id) : 's' + (index + 1),
+      label: typeof src.label === 'string' && src.label.trim() ? src.label : '取餐时段',
+      limit: Number.isFinite(rawLimit) && rawLimit > 0 ? Math.floor(rawLimit) : fallbackLimit
+    }
+  })
+}
+
 function findSlot(menu, slotId) {
-  const slots = (menu && menu.slots) || []
+  const slots = readSlots(menu && menu.slots)
   const target = String(slotId === null || slotId === undefined ? '' : slotId)
   const found = slots.filter((s) => s.id === target)[0]
   if (!found) fail('SLOT_NOT_FOUND', '取餐时段不存在，请刷新后重新选择')
   return found
 }
 
+const DEFAULT_SLOT_LIMIT = 20
+
+/**
+ * 兼容历史数据：旧版菜单的 slots 可能存成字符串（如 "11:30-12:00"）。
+ * 任何缺失字段都兜底，保证页面永远拿得到 label / left，不会出现「剩undefined」。
+ */
 function slotAvailability(slot, used) {
-  const limit = Number(slot.limit) || 0
+  const src = typeof slot === 'string' ? { label: slot } : (slot || {})
+  const rawLimit = Number(src.limit)
+  const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.floor(rawLimit) : DEFAULT_SLOT_LIMIT
   const usedCount = Number.isInteger(used) && used >= 0 ? used : 0
+  const label = typeof src.label === 'string' && src.label.trim() ? src.label : '取餐时段'
   return {
-    id: slot.id,
-    label: slot.label,
+    id: src.id ? String(src.id) : 's1',
+    label,
     limit,
     used: usedCount,
     left: Math.max(limit - usedCount, 0),
@@ -69,4 +96,4 @@ function checkCapacity(used, limit) {
   return used + 1
 }
 
-module.exports = { normalizeSlots, findSlot, slotAvailability, checkCapacity, MAX_SLOT_LIMIT, MAX_SLOTS }
+module.exports = { normalizeSlots, readSlots, findSlot, slotAvailability, checkCapacity, MAX_SLOT_LIMIT, MAX_SLOTS }

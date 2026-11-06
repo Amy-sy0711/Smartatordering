@@ -1,0 +1,35 @@
+.entry-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 0 60rpx;
+  box-sizing: border-box;
+  background: linear-gradient(180deg, #fff7ec 0%, #ffffff 60%);
+}
+
+.entry-logo {
+  font-size: 96rpx;
+  line-height: 1;
+}
+
+.entry-title {
+  margin-top: 24rpx;
+  font-size: 40rpx;
+  font-weight: 700;
+  color: #1f2430;
+}
+
+.entry-status {
+  margin-top: 32rpx;
+  font-size: 26rpx;
+  color: #e85d04;
+}
+
+.entry-tip {
+  margin-top: 16rpx;
+  font-size: 22rpx;
+  color: #8b93a1;
+  text-align: center;
+}

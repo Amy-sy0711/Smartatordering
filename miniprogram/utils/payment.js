@@ -1,5 +1,5 @@
 /** 支付分流：前端只按 payMode 渲染，不重复写两套流程 */
-const api = require('./api')
+const api = require('./data-source')
 
 const FALLBACK_SETTINGS = {
   payMode: 'transfer',

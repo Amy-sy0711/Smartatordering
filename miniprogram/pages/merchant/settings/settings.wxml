@@ -1,4 +1,5 @@
 <view class="page">
+  <merchant-exit />
   <view class="loading" wx:if="{{loading}}">加载收款设置…</view>
 
   <block wx:if="{{!loading}}">
@@ -58,6 +59,12 @@
 3. 把商户号、云开发环境 ID 填到 cloudfunctions/pay/config.js 的 WXPAY 段，WXPAY.ENABLED 设为 true
 4. 部署 pay 与 paynotify 云函数；支付回调由 paynotify 处理</view>
       <view class="warn-box" wx:if="{{!jsapiConfigured}}">当前未配置商户号，顾客点击支付会收到明确的「支付未配置」提示，不会白屏</view>
+    </view>
+
+    <view class="card">
+      <view class="section-title">身份与环境</view>
+      <view class="muted">查看我的 openid、是否商家、云函数连通性与数据库集合文档数</view>
+      <view class="btn btn--ghost btn--block diag-btn" bindtap="goDiagnose">打开环境自检</view>
     </view>
 
     <view class="btn btn--primary btn--block save-btn {{saving ? 'btn--disabled' : ''}}" bindtap="save">

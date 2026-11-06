@@ -1,6 +1,8 @@
-const api = require('../../../utils/api')
+const api = require('../../../utils/data-source')
 const money = require('../../../utils/money')
 const image = require('../../../utils/image')
+const guard = require('../../../utils/merchant-guard')
+const menuCache = require('../../../utils/menu-cache')
 
 function emptyForm() {
   return {
@@ -27,8 +29,13 @@ Page({
 
   onLoad(query) {
     const dishId = decodeURIComponent((query && query.id) || '')
-    this.setData({ dishId })
-    if (dishId) this.loadDish(dishId)
+    guard
+      .requireMerchant()
+      .then(() => {
+        this.setData({ dishId })
+        if (dishId) this.loadDish(dishId)
+      })
+      .catch(() => {})
   },
 
   loadDish(dishId) {
@@ -220,6 +227,7 @@ Page({
       })
       .then(() => {
         this.setData({ saving: false })
+        menuCache.invalidate()
         wx.showToast({ title: '已保存', icon: 'success' })
         setTimeout(() => wx.navigateBack({ delta: 1 }), 600)
       })

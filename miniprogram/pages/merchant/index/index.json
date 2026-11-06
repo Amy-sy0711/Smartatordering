@@ -1,3 +1,6 @@
 {
-  "navigationBarTitleText": "商家中心"
+  "navigationBarTitleText": "商家中心",
+  "usingComponents": {
+    "merchant-exit": "/components/merchant-exit/index"
+  }
 }

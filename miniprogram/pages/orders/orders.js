@@ -1,4 +1,4 @@
-const api = require('../../utils/api')
+const api = require('../../utils/data-source')
 const cartUtil = require('../../utils/cart')
 const statusUtil = require('../../utils/status')
 
@@ -39,7 +39,9 @@ Page({
       })
       .catch((err) => {
         this.setData({ loading: false, busy: false })
-        api.showError(err, '订单加载失败')
+        api.showError(err, '订单加载失败', {
+          onRetry: () => this.load(page || 1, false)
+        })
       })
   },
 

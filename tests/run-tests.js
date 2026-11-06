@@ -10,6 +10,7 @@ const path = require('path')
 
 const ROOT = path.resolve(__dirname, '..')
 const CORE = path.join(ROOT, 'cloudfunctions', 'api', 'core')
+const MINI_UTILS = path.join(ROOT, 'miniprogram', 'utils')
 
 const money = require(path.join(CORE, 'money'))
 const dates = require(path.join(CORE, 'dates'))
@@ -19,6 +20,12 @@ const state = require(path.join(CORE, 'state'))
 const packing = require(path.join(CORE, 'packing'))
 const stats = require(path.join(CORE, 'stats'))
 const paymode = require(path.join(CORE, 'paymode'))
+const localBackend = require(path.join(MINI_UTILS, 'local-backend'))
+const roleRouter = require(path.join(MINI_UTILS, 'role-router'))
+const safe = require(path.join(MINI_UTILS, 'safe'))
+const merchantGuard = require(path.join(MINI_UTILS, 'merchant-guard'))
+const menuCache = require(path.join(MINI_UTILS, 'menu-cache'))
+const dataSource = require(path.join(MINI_UTILS, 'data-source'))
 
 let passed = 0
 let failed = 0
@@ -34,6 +41,27 @@ function test(name, fn) {
     failures.push({ name, err })
     console.log('  FAIL  ' + name)
     console.log('        ' + (err && err.message))
+  }
+}
+
+/** 异步用例：按声明顺序串行执行，全部结束后再汇总 */
+const asyncTests = []
+function testAsync(name, fn) {
+  asyncTests.push({ name, fn })
+}
+
+async function flushAsyncTests() {
+  for (const item of asyncTests) {
+    try {
+      await item.fn()
+      passed += 1
+      console.log('  PASS  ' + item.name)
+    } catch (err) {
+      failed += 1
+      failures.push({ name: item.name, err })
+      console.log('  FAIL  ' + item.name)
+      console.log('        ' + (err && err.message))
+    }
   }
 }
 
@@ -452,14 +480,383 @@ test('dayRange 与 dateKey 对齐（24 小时）', () => {
   assert.strictEqual(dates.shanghaiDateKey(new Date(range.end - 1)), '2026-11-04')
 })
 
-/* ------------------------------ 汇总 ------------------------------ */
-console.log('\n----------------------------------------')
-console.log('通过 ' + passed + ' 项，失败 ' + failed + ' 项')
-if (failed) {
-  for (const item of failures) {
-    console.log('\n失败用例：' + item.name)
-    console.log(item.err && item.err.stack)
+/* ------------------------------ 启动身份分流 ------------------------------ */
+console.log('\n[启动身份分流（登录 → whoami → 分流）]')
+
+test('isMerchant === true 进入商家看板', () => {
+  const decision = roleRouter.resolveStartRoute({ openid: 'o1', isMerchant: true })
+  assert.strictEqual(decision.target, '/pages/merchant/index/index')
+  assert.strictEqual(decision.isMerchant, true)
+  assert.strictEqual(decision.failed, false)
+})
+
+test('isMerchant === false 进入顾客端菜单', () => {
+  const decision = roleRouter.resolveStartRoute({ openid: 'o1', isMerchant: false })
+  assert.strictEqual(decision.target, '/pages/menu/menu')
+  assert.strictEqual(decision.isMerchant, false)
+  assert.strictEqual(decision.failed, false)
+})
+
+test('身份识别失败进入顾客端并标记失败（不误进商家端）', () => {
+  const decision = roleRouter.resolveStartRoute({ error: { code: 'CALL_FAILED', message: '云函数不可达' } })
+  assert.strictEqual(decision.target, '/pages/menu/menu')
+  assert.strictEqual(decision.isMerchant, false)
+  assert.strictEqual(decision.failed, true)
+  assert.strictEqual(decision.errorCode, 'CALL_FAILED')
+  assert.ok(decision.errorMessage.indexOf('云函数') >= 0)
+})
+
+/* ------------------------------ local 数据源 ------------------------------ */
+console.log('\n[本地演示模式（local）数据源]')
+
+function memoryStorage() {
+  let data = null
+  return {
+    get() {
+      return data
+    },
+    set(key, value) {
+      data = value
+    },
+    remove() {
+      data = null
+    },
+    dump() {
+      return data
+    }
   }
-  process.exit(1)
 }
-console.log('全部离线单测通过')
+
+function makeLocal() {
+  const storage = memoryStorage()
+  const at = new Date('2026-11-05T03:00:00Z') // 上海时间 11:00
+  const backend = localBackend.createLocalBackend({ storage, now() { return at } })
+  return { storage, backend, at }
+}
+
+function localCreate(backend, cartItems, extra) {
+  return backend.run('order.create', Object.assign({ cartItems, slotId: 's1', remark: '' }, extra || {}))
+}
+
+test('首次启动自动写入种子：3+ 分类、6-8 菜、1 规格菜、1 售罄菜、1 时段限量 20、transfer', () => {
+  const { backend } = makeLocal()
+  const menu = backend.run('menu.today')
+  assert.strictEqual(menu.published, true)
+  assert.ok(menu.categories.length >= 3, '至少 3 个分类')
+  assert.ok(menu.totalDishes >= 6 && menu.totalDishes <= 8, '菜品数应在 6-8')
+  assert.strictEqual(menu.slots.length, 1)
+  assert.strictEqual(menu.slots[0].limit, 20)
+  assert.strictEqual(menu.slots[0].left, 20)
+  assert.strictEqual(menu.payment.payMode, 'transfer')
+  const allDishes = menu.categories.reduce((acc, cat) => acc.concat(cat.dishes), [])
+  assert.ok(allDishes.filter((dish) => dish.specs.length > 0).length >= 1, '至少 1 个规格菜')
+  assert.ok(allDishes.filter((dish) => dish.soldOut).length >= 1, '至少 1 个售罄菜')
+})
+
+test('local whoami 默认非商家，可手动切换商家视图再切回', () => {
+  const { backend } = makeLocal()
+  assert.strictEqual(backend.run('whoami').isMerchant, false)
+  assert.strictEqual(backend.run('merchant.switchRole', { merchant: true }).isMerchant, true)
+  assert.strictEqual(backend.run('merchant.checkAccess', { claim: false }).isMerchant, true)
+  assert.strictEqual(backend.run('merchant.switchRole', { merchant: false }).isMerchant, false)
+})
+
+test('local 下单重算价格：忽略前端金额、计入规格加价', () => {
+  const { backend } = makeLocal()
+  const created = localCreate(backend, [
+    { dishId: 'dish_hdg', qty: 2, specOptionIds: ['g1o1', 'g2o1'], priceCents: 1, lineTotalCents: 1 },
+    { dishId: 'dish_drink', qty: 1, specOptionIds: [] }
+  ])
+  assert.strictEqual(created.totalCents, (2200 + 200) * 2 + 500)
+  assert.strictEqual(created.totalQty, 3)
+  assert.ok(/^20261105-000\d$/.test(created.orderNo), '订单号应为日期+序号')
+  const menu = backend.run('menu.today')
+  assert.strictEqual(menu.slots[0].left, 19)
+})
+
+test('local 时段限量：名额用满后拒绝下单', () => {
+  const { storage, backend } = makeLocal()
+  backend.run('menu.today') // 触发首次种子写入
+  const db = storage.dump()
+  const key = Object.keys(db.slotCounters)[0]
+  db.slotCounters[key].used = db.slotCounters[key].limit
+  storage.set('local_db_v1', db)
+  expectCode(() => localCreate(backend, [{ dishId: 'dish_drink', qty: 1, specOptionIds: [] }]), 'SLOT_FULL')
+})
+
+test('local 转账闭环：pending_pay → pending_confirm → paid → accepted → ready → completed', () => {
+  const { backend } = makeLocal()
+  const created = localCreate(backend, [{ dishId: 'dish_drink', qty: 1, specOptionIds: [] }])
+  const orderId = created.orderId
+  assert.strictEqual(backend.run('order.markTransferred', { orderId }).status, 'pending_confirm')
+  const confirmed = backend.run('merchant.confirmReceipt', { orderId })
+  assert.strictEqual(confirmed.order.status, 'paid')
+  assert.strictEqual(confirmed.record.amountCents, 500)
+  assert.strictEqual(backend.run('merchant.transition', { orderId, action: 'accept' }).status, 'accepted')
+  assert.strictEqual(backend.run('merchant.transition', { orderId, action: 'ready' }).status, 'ready')
+  assert.strictEqual(backend.run('merchant.transition', { orderId, action: 'complete' }).status, 'completed')
+  assert.strictEqual(backend.run('order.detail', { orderId }).status, 'completed')
+})
+
+test('local 打包清单按菜品+规格聚合数量', () => {
+  const { backend } = makeLocal()
+  const a = localCreate(backend, [
+    { dishId: 'dish_hdg', qty: 2, specOptionIds: ['g1o1', 'g2o1'] },
+    { dishId: 'dish_drink', qty: 1, specOptionIds: [] }
+  ])
+  const b = localCreate(backend, [{ dishId: 'dish_hdg', qty: 1, specOptionIds: ['g1o1', 'g2o1'] }])
+  backend.run('order.markTransferred', { orderId: a.orderId, note: '' })
+  backend.run('merchant.confirmReceipt', { orderId: a.orderId })
+  backend.run('order.markTransferred', { orderId: b.orderId, note: '' })
+  backend.run('merchant.confirmReceipt', { orderId: b.orderId })
+  const list = backend.run('merchant.packing')
+  assert.strictEqual(list.orderCount, 2)
+  assert.strictEqual(list.itemCount, 4)
+  const group = list.groups.filter((item) => item.key === 'dish_hdg::不辣 / 加卤蛋')[0]
+  assert.ok(group, '应存在规格聚合组')
+  assert.strictEqual(group.qty, 3)
+})
+
+test('local 收益区分已收款与待确认金额', () => {
+  const { backend } = makeLocal()
+  const pending = localCreate(backend, [{ dishId: 'dish_hdg', qty: 1, specOptionIds: ['g1o1'] }])
+  backend.run('order.markTransferred', { orderId: pending.orderId, note: '' })
+  const paid = localCreate(backend, [{ dishId: 'dish_drink', qty: 1, specOptionIds: [] }])
+  backend.run('order.markTransferred', { orderId: paid.orderId, note: '' })
+  backend.run('merchant.confirmReceipt', { orderId: paid.orderId })
+  const result = backend.run('merchant.stats')
+  assert.strictEqual(result.paidCents, 500)
+  assert.strictEqual(result.paidCount, 1)
+  assert.strictEqual(result.pendingConfirmCents, 2200)
+  assert.strictEqual(result.pendingConfirmCount, 1)
+  assert.strictEqual(result.paymentRecords.length, 1)
+})
+
+test('local jsapi 明确报 WXPAY_NOT_CONFIGURED（不白屏）', () => {
+  const { backend } = makeLocal()
+  expectCode(() => backend.run('jsapiPay', { orderId: 'x' }), 'WXPAY_NOT_CONFIGURED')
+})
+
+/* --------------------------- 展示层兜底 --------------------------- */
+console.log('\n[展示层兜底 safeText / safeNumber]')
+
+test('safeText 对 undefined / null / NaN / 空白串返回兜底，不把字面上屏', () => {
+  assert.strictEqual(safe.safeText(undefined, '—'), '—')
+  assert.strictEqual(safe.safeText(null, '—'), '—')
+  assert.strictEqual(safe.safeText(NaN, '—'), '—')
+  assert.strictEqual(safe.safeText('   ', '—'), '—')
+  assert.strictEqual(safe.safeText('', '—'), '—')
+  assert.strictEqual(safe.safeText(0, '—'), '0')
+  assert.strictEqual(safe.safeText(false, '—'), 'false')
+  assert.strictEqual(safe.safeText('黄焖鸡', '—'), '黄焖鸡')
+  assert.strictEqual(safe.safeText(undefined), '')
+})
+
+test('safeNumber / safeInt / safeArray 对非法值兜底', () => {
+  assert.strictEqual(safe.safeNumber(undefined, 0), 0)
+  assert.strictEqual(safe.safeNumber(null, 7), 7)
+  assert.strictEqual(safe.safeNumber(NaN, 7), 7)
+  assert.strictEqual(safe.safeNumber('abc', 7), 7)
+  assert.strictEqual(safe.safeNumber(Infinity, 7), 7)
+  assert.strictEqual(safe.safeNumber('12', 7), 12)
+  assert.strictEqual(safe.safeInt(3.9, 0), 3)
+  assert.strictEqual(safe.safeInt(NaN, 5), 5)
+  assert.deepStrictEqual(safe.safeArray(null), [])
+  assert.deepStrictEqual(safe.safeArray(undefined), [])
+  assert.deepStrictEqual(safe.safeArray([1]), [1])
+})
+
+test('旧数据字符串时段不再产生「剩undefined」', () => {
+  const read = slots.readSlots(['11:30-12:00', '12:00-12:30'])
+  assert.strictEqual(read.length, 2)
+  assert.strictEqual(read[0].label, '11:30-12:00')
+  assert.strictEqual(read[0].limit, 20)
+  assert.strictEqual(read[0].id, 's1')
+  const avail = slots.slotAvailability(read[0], undefined)
+  for (const key of ['id', 'label', 'limit', 'used', 'left']) {
+    assert.notStrictEqual(avail[key], undefined, key + ' 不应为 undefined')
+  }
+  assert.strictEqual(avail.left, 20)
+  const legacy = slots.slotAvailability('11:30-12:00', 3)
+  assert.strictEqual(legacy.label, '11:30-12:00')
+  assert.strictEqual(legacy.left, 17)
+  const broken = slots.slotAvailability({ label: null, limit: NaN }, NaN)
+  assert.strictEqual(broken.label, '取餐时段')
+  assert.strictEqual(broken.limit, 20)
+  assert.strictEqual(broken.used, 0)
+})
+
+/* --------------------------- 权限守卫 --------------------------- */
+console.log('\n[商家权限守卫]')
+
+test('decideAccess 仅 isMerchant === true 放行，其余一律拒绝', () => {
+  assert.deepStrictEqual(merchantGuard.decideAccess({ isMerchant: true }), {
+    allowed: true,
+    code: 'OK',
+    message: ''
+  })
+  assert.strictEqual(merchantGuard.decideAccess({ isMerchant: false }).allowed, false)
+  assert.strictEqual(merchantGuard.decideAccess({}).allowed, false)
+  assert.strictEqual(merchantGuard.decideAccess(null).code, 'NO_MERCHANT_ACCESS')
+  assert.strictEqual(merchantGuard.decideAccess({ isMerchant: 'true' }).allowed, false)
+})
+
+/* --------------------------- 菜单缓存与同源 ------------------- */
+console.log('\n[菜单缓存失效与商家/顾客同源数据]')
+
+test('菜单缓存失效会清理旧快照键', () => {
+  const removed = []
+  global.wx = { removeStorageSync: (key) => removed.push(key) }
+  try {
+    assert.strictEqual(menuCache.invalidate(), menuCache.LEGACY_KEYS.length)
+    assert.deepStrictEqual(removed, menuCache.LEGACY_KEYS)
+  } finally {
+    delete global.wx
+  }
+})
+
+test('local 商家加菜并发布后，顾客端读同一 store 能看到新菜', () => {
+  const { storage, backend, at } = makeLocal()
+  const beforeMenu = backend.run('menu.today')
+  const ids = beforeMenu.categories
+    .reduce((acc, cat) => acc.concat(cat.dishes), [])
+    .map((dish) => dish._id)
+  const saved = backend.run('merchant.saveDish', {
+    dish: { name: '测试新菜', category: '测试', priceCents: 1234, sortOrder: 9, onSale: true }
+  })
+  assert.strictEqual(saved.created, true)
+  backend.run('merchant.publishMenu', {
+    title: '今日菜单',
+    slots: beforeMenu.slots.map((slot) => ({ id: slot.id, label: slot.label, limit: slot.limit })),
+    dishIds: ids.concat([saved.dishId])
+  })
+  // 模拟顾客端另一台页面实例：同一 storage key、同一版本
+  const customer = localBackend.createLocalBackend({ storage, now() { return at } })
+  const menu = customer.run('menu.today')
+  const all = menu.categories.reduce((acc, cat) => acc.concat(cat.dishes), [])
+  assert.strictEqual(menu.totalDishes, ids.length + 1)
+  assert.ok(all.filter((dish) => dish.name === '测试新菜')[0], '顾客端应看到新菜')
+  assert.strictEqual(typeof menu.menuVersion, 'number')
+})
+
+/* --------------------------- 云端失败不静默回退 --------------------------- */
+console.log('\n[云端失败：显式提示，不自动切 local]')
+
+function installEnv(app, wxMock) {
+  global.wx = wxMock
+  global.getApp = () => app
+}
+
+function clearEnv() {
+  delete global.wx
+  delete global.getApp
+}
+
+test('云端失败弹窗给「重试 / 用本地演示」两个动作，只有点本地演示才切 local', () => {
+  const store = {}
+  const app = { globalData: { dataMode: 'cloud', cloudEnv: 'ordering-d0gyct6z1ff2afebd' } }
+  let modal = null
+  let retried = 0
+  const relaunch = []
+  installEnv(app, {
+    getStorageSync: (key) => store[key],
+    setStorageSync: (key, value) => { store[key] = value },
+    showModal: (opts) => { modal = opts },
+    showToast: () => {},
+    reLaunch: (opts) => relaunch.push(opts.url)
+  })
+  try {
+    dataSource.showError({ code: 'CALL_FAILED', message: '云函数未部署' }, '订单加载失败', {
+      onRetry: () => { retried += 1 }
+    })
+    assert.ok(modal, '应弹出兜底提示')
+    assert.strictEqual(modal.confirmText, '重试')
+    assert.ok(modal.cancelText.indexOf('本地演示') >= 0, '取消按钮应为「用本地演示」')
+    assert.ok(modal.content.indexOf('CALL_FAILED') >= 0, '弹窗应展示错误码')
+    assert.strictEqual(dataSource.getMode(), 'cloud')
+
+    modal.success({ confirm: true, cancel: false })
+    assert.strictEqual(retried, 1)
+    assert.strictEqual(dataSource.getMode(), 'cloud', '点重试不应切模式')
+
+    modal.success({ confirm: false, cancel: true })
+    assert.strictEqual(dataSource.getMode(), 'local', '只有点本地演示才切 local')
+    assert.strictEqual(store[dataSource.MODE_STORAGE_KEY], 'local')
+  } finally {
+    dataSource.switchToCloud({ silent: true })
+    clearEnv()
+  }
+})
+
+testAsync('云端调用失败时模式仍为 cloud，不写本地演示数据', async () => {
+  const store = {}
+  const app = { globalData: { dataMode: 'cloud', cloudEnv: 'ordering-d0gyct6z1ff2afebd' } }
+  installEnv(app, {
+    getStorageSync: (key) => store[key],
+    setStorageSync: (key, value) => { store[key] = value },
+    showToast: () => {},
+    reLaunch: () => {}
+  })
+  try {
+    assert.strictEqual(dataSource.getMode(), 'cloud')
+    let error = null
+    try {
+      await dataSource.call('menu.today')
+    } catch (err) {
+      error = err
+    }
+    assert.ok(error, '云端不可用时必须抛错')
+    assert.strictEqual(error.code, 'CLOUD_UNAVAILABLE')
+    assert.strictEqual(dataSource.getMode(), 'cloud')
+    assert.strictEqual(store[dataSource.MODE_STORAGE_KEY], undefined)
+    assert.strictEqual(store['ordering_local_db_v1'], undefined, '不应偷偷写入本地 store')
+  } finally {
+    clearEnv()
+  }
+})
+
+testAsync('角色守卫拒绝顾客直达商家页，并跳回菜单', async () => {
+  const store = {}
+  const toasts = []
+  const relaunch = []
+  const app = { globalData: { dataMode: 'local' } }
+  installEnv(app, {
+    getStorageSync: (key) => store[key],
+    setStorageSync: (key, value) => { store[key] = value },
+    removeStorageSync: (key) => { delete store[key] },
+    showToast: (opts) => toasts.push(opts.title),
+    reLaunch: (opts) => relaunch.push(opts.url)
+  })
+  try {
+    let error = null
+    try {
+      await merchantGuard.requireMerchant()
+    } catch (err) {
+      error = err
+    }
+    assert.ok(error, '非商家必须被拒绝')
+    assert.strictEqual(error.code, 'NO_MERCHANT_ACCESS')
+    assert.ok(toasts.indexOf('无商家权限') >= 0, '应提示无商家权限')
+    await new Promise((resolve) => setTimeout(resolve, 320))
+    assert.ok(relaunch.indexOf('/pages/menu/menu') >= 0, '应 reLaunch 回菜单页')
+  } finally {
+    clearEnv()
+  }
+})
+
+/* ------------------------------ 汇总 ------------------------------ */
+async function printSummary() {
+  await flushAsyncTests()
+  console.log('\n----------------------------------------')
+  console.log('通过 ' + passed + ' 项，失败 ' + failed + ' 项')
+  if (failed) {
+    for (const item of failures) {
+      console.log('\n失败用例：' + item.name)
+      console.log(item.err && item.err.stack)
+    }
+    process.exit(1)
+  }
+  console.log('全部离线单测通过')
+}
+
+printSummary()

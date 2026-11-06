@@ -3,9 +3,17 @@
 const menuHandler = require('./handlers/menu')
 const orderHandler = require('./handlers/order')
 const merchantHandler = require('./handlers/merchant')
+const healthHandler = require('./handlers/health')
 
 /** action -> handler（前端只通过这张表调用云函数） */
 module.exports = {
+  // 自检（只读）
+  'health': healthHandler.health,
+
+  // 启动身份识别（登录 → whoami → 分流）
+  'whoami': merchantHandler.whoami,
+  'merchant.claimSelf': merchantHandler.claimSelf,
+
   // 顾客端
   'menu.today': menuHandler.today,
   'settings.payment': menuHandler.payment,

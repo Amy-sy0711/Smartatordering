@@ -1,4 +1,20 @@
 <view class="page menu-page">
+  <view class="local-banner" wx:if="{{isLocal}}">
+    <view class="local-banner-title">本地演示模式</view>
+    <view class="local-banner-desc">数据不会同步到云端，其他人看不到。点右侧可切回云端。</view>
+    <text class="local-banner-link" bindtap="useCloudMode">切回云端</text>
+  </view>
+
+  <view class="preview-banner" wx:if="{{fromMerchant}}">
+    <text class="preview-text">商家预览中 · 当前为顾客视角</text>
+    <text class="preview-link" bindtap="backToBoard">返回看板 →</text>
+  </view>
+
+  <view class="identity-banner" wx:if="{{identityError}}" bindtap="goDiagnose">
+    <view class="identity-title">身份校验失败</view>
+    <view class="identity-desc">{{identityError.code}}：{{identityError.message}} · 点此自检 →</view>
+  </view>
+
   <view class="hero" wx:if="{{published}}">
     <view class="hero-top">
       <text class="hero-title">{{menu.title}}</text>
@@ -7,7 +23,8 @@
     <view class="hero-sub" wx:if="{{shop}}">{{shop.pickupPlace}} · {{shop.pickupNote}}</view>
     <view class="hero-slots">
       <view class="slot-chip {{slot.full ? 'slot-chip--full' : ''}}" wx:for="{{slots}}" wx:key="id">
-        {{slot.label}} <text class="slot-left">{{slot.full ? '已满' : '剩' + slot.left}}</text>
+        {{slot.label}}
+        <text class="slot-left">{{slot.full ? '已满' : '剩' + slot.left}}</text>
       </view>
     </view>
   </view>
@@ -17,15 +34,41 @@
     <text class="pay-hint-text">{{paySettings.payMode === 'transfer' ? paySettings.transfer.tipText : (paySettings.payMode === 'jsapi' ? '下单后直接在小程序内微信支付' : '开发调试：下单后模拟支付')}}</text>
   </view>
 
-  <view class="loading" wx:if="{{loading}}">菜单加载中…</view>
+  <view class="loading" wx:if="{{loadState === 'loading'}}">菜单加载中…</view>
 
-  <view class="empty" wx:if="{{!loading && !published}}">
-    <view class="empty-title">商家还没发布今日菜单</view>
-    <view>发布后下拉刷新即可点餐</view>
-    <button class="btn btn--ghost empty-btn" bindtap="refresh">刷新试试</button>
+  <view class="state-card state-card--fail" wx:elif="{{loadState === 'load_failed'}}">
+    <view class="state-title">云端未连通</view>
+    <view class="state-desc">{{errorHint}}</view>
+    <view class="state-row">
+      <text class="state-label">错误码</text>
+      <text class="state-value" selectable>{{errorCode}}</text>
+    </view>
+    <view class="state-row">
+      <text class="state-label">错误信息</text>
+      <text class="state-value" selectable>{{errorMsg}}</text>
+    </view>
+    <view class="state-actions">
+      <button class="btn btn--ghost state-btn" bindtap="retry">重试</button>
+      <button class="btn state-btn" bindtap="goDiagnose">打开自检</button>
+    </view>
+    <view class="state-actions">
+      <button class="btn btn--ghost state-btn" wx:if="{{!isLocal}}" bindtap="useLocalDemo">先用本地演示</button>
+      <button class="btn btn--ghost state-btn" wx:else bindtap="useCloudMode">切回云端模式</button>
+      <button class="btn btn--ghost state-btn" bindtap="copyError">复制错误</button>
+    </view>
   </view>
 
-  <block wx:if="{{published}}">
+  <view class="empty" wx:elif="{{loadState === 'empty'}}">
+    <view class="empty-title">商家尚未发布今日菜单</view>
+    <view class="empty-sub">发布后下拉刷新即可点餐</view>
+    <view class="state-actions">
+      <button class="btn btn--ghost empty-btn" bindtap="retry">刷新试试</button>
+      <button class="btn empty-btn" bindtap="goDiagnose">打开自检</button>
+    </view>
+    <view class="empty-link" bindtap="goDiagnose">商家还没发布？先自检云端与今日菜单 →</view>
+  </view>
+
+  <block wx:if="{{loadState === 'ready'}}">
     <view class="cat" wx:for="{{categories}}" wx:key="name" wx:for-item="cat">
       <view class="cat-title">{{cat.name}}</view>
       <view
@@ -47,13 +90,16 @@
         <view class="dish-sold" wx:else>售罄</view>
       </view>
     </view>
-
-    <view class="footer-links">
-      <text class="footer-link" bindtap="goOrders">我的订单</text>
-      <text class="footer-link" wx:if="{{isMerchant}}" bindtap="goMerchant">商家入口</text>
-      <text class="footer-link footer-link--demo" wx:elif="{{canBootstrap}}" bindtap="goMerchant">商家入口（演示模式）</text>
-    </view>
   </block>
+
+  <!-- 顾客端不提供任何进入商家端的入口；商家身份由启动 whoami 自动识别 -->
+  <view class="footer-links">
+    <text class="footer-link" bindtap="goOrders">我的订单</text>
+    <text class="footer-link" bindtap="goDiagnose">自检</text>
+  </view>
+  <view class="mode-note">
+    <text>当前：{{modeLabel || '云端模式'}}</text>
+  </view>
 
   <view class="cartbar" wx:if="{{published}}">
     <view class="cartbar-left" bindtap="goOrders">

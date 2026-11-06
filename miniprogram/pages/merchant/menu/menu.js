@@ -1,4 +1,6 @@
-const api = require('../../../utils/api')
+const api = require('../../../utils/data-source')
+const guard = require('../../../utils/merchant-guard')
+const menuCache = require('../../../utils/menu-cache')
 
 const DEFAULT_SLOTS = [
   { label: '11:30-12:00', limit: 20 },
@@ -21,7 +23,7 @@ Page({
   },
 
   onShow() {
-    this.load()
+    guard.requireMerchant().then(() => this.load()).catch(() => {})
   },
 
   load() {
@@ -35,9 +37,16 @@ Page({
         const menu = results[1] || {}
         const history = (results[2].list || []).filter((item) => !item.isToday)
         const slots = (menu.slots || []).map((slot) => ({ label: slot.label, limit: slot.limit }))
+        const todayDishIds = Array.isArray(menu.dishIds) ? menu.dishIds : []
+        // 区分「菜品库」与「今日已发布菜单」，避免商家误以为新增菜没生效
+        const dishList = dishes.map((dish) => Object.assign({}, dish, {
+          inToday: todayDishIds.indexOf(dish._id) >= 0,
+          priceText: dish.priceText || '0.00',
+          specs: Array.isArray(dish.specs) ? dish.specs : []
+        }))
         this.setData({
           loading: false,
-          dishes,
+          dishes: dishList,
           menu,
           dateLabel: menu.dateLabel || '',
           menuTitle: menu.title || '今日菜单',
@@ -48,7 +57,7 @@ Page({
       })
       .catch((err) => {
         this.setData({ loading: false })
-        api.showError(err, '加载失败')
+        api.showError(err, '加载失败', { onRetry: () => this.load() })
       })
   },
 
@@ -120,7 +129,8 @@ Page({
       .call('merchant.publishMenu', { title: this.data.menuTitle, slots, dishIds })
       .then((res) => {
         this.setData({ publishing: false })
-        wx.showToast({ title: res.menu && res.menu.slots ? '已发布' : '已发布', icon: 'success' })
+        menuCache.invalidate()
+        wx.showToast({ title: '已发布，顾客端下拉刷新即可见', icon: 'none' })
         this.load()
       })
       .catch((err) => {
@@ -139,6 +149,7 @@ Page({
         api
           .call('merchant.copyMenu', { fromDate })
           .then(() => {
+            menuCache.invalidate()
             wx.showToast({ title: '已复制并发布', icon: 'none' })
             this.load()
           })
@@ -154,6 +165,7 @@ Page({
     api
       .call('merchant.toggleDish', { dishId, field, value })
       .then(() => {
+        menuCache.invalidate()
         const dishes = this.data.dishes.map((dish) => {
           if (dish._id !== dishId) return dish
           const patch = {}
@@ -167,6 +179,31 @@ Page({
 
   addDish() {
     wx.navigateTo({ url: '/pages/merchant/dish/dish' })
+  },
+
+  /** 把「菜品库」里的菜加入今日已发布菜单（不再让用户误以为新增菜没生效） */
+  addToToday(e) {
+    const dishId = e.currentTarget.dataset.id
+    if (!dishId) return
+    const menu = this.data.menu || {}
+    const current = Array.isArray(menu.dishIds) ? menu.dishIds.slice() : []
+    if (current.indexOf(dishId) >= 0) {
+      wx.showToast({ title: '该菜已在今日菜单中', icon: 'none' })
+      return
+    }
+    const slots = (menu.slots || []).map((slot) => ({ id: slot.id, label: slot.label, limit: slot.limit }))
+    api
+      .call('merchant.publishMenu', {
+        title: this.data.menuTitle,
+        slots: slots.length ? slots : DEFAULT_SLOTS,
+        dishIds: current.concat([dishId])
+      })
+      .then(() => {
+        menuCache.invalidate()
+        wx.showToast({ title: '已加入今日菜单，顾客刷新可见', icon: 'none' })
+        this.load()
+      })
+      .catch((err) => api.showError(err, '加入今日菜单失败'))
   },
 
   editDish(e) {
@@ -185,6 +222,7 @@ Page({
         api
           .call('merchant.deleteDish', { dishId })
           .then(() => {
+            menuCache.invalidate()
             wx.showToast({ title: '已删除', icon: 'none' })
             this.load()
           })

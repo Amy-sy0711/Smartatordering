@@ -1,5 +1,6 @@
-const api = require('../../../utils/api')
+const api = require('../../../utils/data-source')
 const statusUtil = require('../../../utils/status')
+const guard = require('../../../utils/merchant-guard')
 
 const TABS = [
   { key: 'all', label: '全部', statuses: [] },
@@ -24,7 +25,7 @@ Page({
   },
 
   onShow() {
-    this.load()
+    guard.requireMerchant().then(() => this.load()).catch(() => {})
   },
 
   load() {
@@ -49,7 +50,7 @@ Page({
       })
       .catch((err) => {
         this.setData({ loading: false })
-        api.showError(err, '订单加载失败')
+        api.showError(err, '订单加载失败', { onRetry: () => this.load() })
       })
   },
 

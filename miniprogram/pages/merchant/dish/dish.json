@@ -1,4 +1,6 @@
 {
   "navigationBarTitleText": "菜品编辑",
-  "usingComponents": {}
+  "usingComponents": {
+    "merchant-exit": "/components/merchant-exit/index"
+  }
 }

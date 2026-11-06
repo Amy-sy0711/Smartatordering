@@ -1,9 +1,11 @@
 {
   "pages": [
+    "pages/entry/entry",
     "pages/menu/menu",
     "pages/cart/cart",
     "pages/orders/orders",
     "pages/order-detail/order-detail",
+    "pages/diagnose/diagnose",
     "pages/merchant/index/index",
     "pages/merchant/menu/menu",
     "pages/merchant/dish/dish",

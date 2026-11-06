@@ -1,0 +1,10 @@
+.merchant-exit {
+  display: inline-block;
+  margin-bottom: 16rpx;
+  padding: 10rpx 24rpx;
+  border-radius: 999rpx;
+  background: #ffffff;
+  border: 1rpx solid #e3e6ec;
+  color: #5c6472;
+  font-size: 24rpx;
+}

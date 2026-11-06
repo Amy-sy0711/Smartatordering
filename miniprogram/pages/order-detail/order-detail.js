@@ -1,4 +1,4 @@
-const api = require('../../utils/api')
+const api = require('../../utils/data-source')
 const statusUtil = require('../../utils/status')
 
 Page({
@@ -32,11 +32,11 @@ Page({
       return
     }
     return api
-      .call('order.detail', { orderId: this.orderId })
+      .call('order.detail', { orderId: this.orderId, asMerchant: this.data.fromMerchant === true })
       .then((order) => {
         this.loadedOnce = true
         const actionTextMap = {}
-        (order.actions || []).forEach((action) => {
+        ;(order.actions || []).forEach((action) => {
           actionTextMap[action] = statusUtil.actionText(action)
         })
         this.setData({
@@ -48,7 +48,7 @@ Page({
       })
       .catch((err) => {
         this.setData({ loading: false })
-        api.showError(err, '订单加载失败')
+        api.showError(err, '订单加载失败', { onRetry: () => this.load() })
       })
   },
 

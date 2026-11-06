@@ -1,3 +1,6 @@
 {
-  "navigationBarTitleText": "菜单管理"
+  "navigationBarTitleText": "菜单管理",
+  "usingComponents": {
+    "merchant-exit": "/components/merchant-exit/index"
+  }
 }

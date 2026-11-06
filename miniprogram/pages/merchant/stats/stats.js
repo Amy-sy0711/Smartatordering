@@ -1,5 +1,6 @@
-const api = require('../../../utils/api')
+const api = require('../../../utils/data-source')
 const money = require('../../../utils/money')
+const guard = require('../../../utils/merchant-guard')
 
 Page({
   data: {
@@ -12,7 +13,7 @@ Page({
   },
 
   onLoad() {
-    this.load('')
+    guard.requireMerchant().then(() => this.load('')).catch(() => {})
   },
 
   load(date) {
@@ -46,7 +47,7 @@ Page({
       })
       .catch((err) => {
         this.setData({ loading: false })
-        api.showError(err, '收益统计加载失败')
+        api.showError(err, '收益统计加载失败', { onRetry: () => this.load(this.data.date || '') })
       })
   },
 

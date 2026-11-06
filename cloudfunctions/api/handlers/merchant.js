@@ -213,6 +213,7 @@ async function publishMenuInternal(ctx, options) {
       published: true,
       createdAt: (existing && existing.createdAt) || new Date(),
       updatedAt: new Date(),
+      menuVersion: Date.now(),
       publishedBy: ctx.openid
     }
   })
@@ -545,7 +546,59 @@ async function getPaymentSettings(ctx) {
   }
 }
 
+/** 启动身份识别：返回 openid + 是否商家（不做任何写入） */
+async function whoami(ctx) {
+  const isMerchant = await authLib.isMerchant(ctx.db, ctx.openid)
+  let dynamic = []
+  let adminCollectionReady = true
+  try {
+    dynamic = await authLib.getDynamicOpenids(ctx.db)
+  } catch (err) {
+    adminCollectionReady = false
+    console.error('[api] 读取 merchant_admins 失败', err)
+  }
+  return {
+    openid: ctx.openid || '',
+    isMerchant,
+    envId: ctx.envId || '',
+    mode: 'cloud',
+    merchantOpenidCount: dynamic.length,
+    adminCollectionReady,
+    canSelfClaim:
+      config.ALLOW_SELF_CLAIM &&
+      !isMerchant &&
+      adminCollectionReady &&
+      dynamic.length === 0 &&
+      config.MERCHANT_OPENIDS.length === 0,
+    autoBootstrap: false
+  }
+}
+
+/** 一次性自助成为商家：仅集合为空 + 本人手动确认时生效 */
+async function claimSelf(ctx) {
+  const payload = ctx.payload || {}
+  if (payload.confirm !== true) fail('CONFIRM_REQUIRED', '请手动确认将当前 openid 设为商家')
+  if (!config.ALLOW_SELF_CLAIM) fail('SELF_CLAIM_DISABLED', '自助成为商家已关闭，请手动配置 merchant_admins')
+  if (!ctx.openid) fail('NO_OPENID', '未获取到 openid，请在小程序内使用')
+  if (config.MERCHANT_OPENIDS.length > 0) {
+    fail('MERCHANT_EXISTS', '已存在静态商家白名单，不能自助成为商家')
+  }
+
+  let dynamic = []
+  try {
+    dynamic = await authLib.getDynamicOpenids(ctx.db)
+  } catch (err) {
+    fail('ADMIN_COLLECTION_MISSING', 'merchant_admins 集合不存在，请先执行 init 云函数 {"action":"setup"}')
+  }
+  if (dynamic.length > 0) fail('MERCHANT_EXISTS', '已存在商家，请让店主手动添加你的 openid')
+
+  await authLib.addDynamicOpenid(ctx.db, ctx._, ctx.openid)
+  return { isMerchant: true, claimed: true, openid: ctx.openid }
+}
+
 module.exports = {
+  whoami,
+  claimSelf,
   checkAccess,
   listDishes,
   saveDish,

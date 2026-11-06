@@ -1,4 +1,5 @@
-const api = require('../../../utils/api')
+const api = require('../../../utils/data-source')
+const guard = require('../../../utils/merchant-guard')
 
 Page({
   data: {
@@ -6,7 +7,9 @@ Page({
     info: null,
     todayStats: null,
     payModeText: '',
-    menuPublished: false
+    menuPublished: false,
+    modeLabel: '',
+    accessError: null
   },
 
   onShow() {
@@ -14,49 +17,67 @@ Page({
   },
 
   enter() {
-    api
-      .call('merchant.checkAccess', { claim: true })
+    const env = api.getEnvInfo()
+    this.setData({ loading: true, accessError: null, modeLabel: env.modeLabel })
+
+    guard
+      .requireMerchant()
       .then((info) => {
-        this.setData({
-          loading: false,
-          info,
-          payModeText: ''
-        })
-        return Promise.all([
-          api.call('merchant.stats').catch(() => null),
-          api.call('merchant.menuDetail').catch(() => null),
-          api.call('merchant.getPaymentSettings').catch(() => null)
-        ])
-      })
-      .then((results) => {
-        const stats = results[0]
-        const menu = results[1]
-        const payConfig = results[2]
-        this.setData({
-          todayStats: stats,
-          menuPublished: !!(menu && menu.published),
-          payModeText: payConfig ? payConfig.payModeLabel : '—'
-        })
+        this.setData({ loading: false, info: info || null })
+        return this.loadDashboard()
       })
       .catch((err) => {
-        this.setData({ loading: false })
-        if (err.code === 'NO_OPENID' || err.code === 'MERCHANT_FORBIDDEN') {
-          wx.showModal({
-            title: '无商家权限',
-            content: err.message || '当前账号不是商家账号',
-            showCancel: false,
-            success: () => wx.navigateBack({ delta: 1 })
-          })
-          return
-        }
-        api.showError(err, '进入商家中心失败')
+        // 非商家 / 云端不可达：守卫已 toast 并 reLaunch 回菜单页，这里只做日志
+        console.error('[merchant.index] 无商家权限', err)
       })
   },
 
+  loadDashboard() {
+    return Promise.all([
+      api.call('merchant.stats').catch((err) => {
+        console.error('[merchant.index] 读取今日收益失败', err)
+        return null
+      }),
+      api.call('merchant.menuDetail').catch((err) => {
+        console.error('[merchant.index] 读取今日菜单失败', err)
+        return null
+      }),
+      api.call('merchant.getPaymentSettings').catch((err) => {
+        console.error('[merchant.index] 读取收款设置失败', err)
+        return null
+      })
+    ]).then((results) => {
+      const stats = results[0]
+      const menu = results[1]
+      const payConfig = results[2]
+      this.setData({
+        loading: false,
+        todayStats: stats,
+        menuPublished: !!(menu && menu.published),
+        payModeText: payConfig ? payConfig.payModeLabel : '—'
+      })
+    })
+  },
+
+  retryEnter() {
+    this.enter()
+  },
+
   copyOpenid() {
-    const openid = this.data.info && this.data.info.openid
-    if (!openid) return
+    const openid = (this.data.info && this.data.info.openid) || (this.data.accessError && this.data.accessError.openid)
+    if (!openid) {
+      wx.showToast({ title: '未获取到 openid', icon: 'none' })
+      return
+    }
     wx.setClipboardData({ data: openid })
+  },
+
+  goDiagnose() {
+    wx.navigateTo({ url: '/pages/diagnose/diagnose' })
+  },
+
+  goHome() {
+    wx.reLaunch({ url: '/pages/menu/menu' })
   },
 
   goMenu() {

@@ -107,16 +107,20 @@ async function today(ctx) {
     catIndex[name].dishes.push(dishView(dish))
   }
 
-  const slotIds = (menu.slots || []).map((slot) => slot.id)
+  // readSlots 兼容旧数据（字符串时段 / 缺 id / 缺 limit），避免前端出现「剩undefined」
+  const readSlots = slotsCore.readSlots(menu.slots)
+  const slotIds = readSlots.map((slot) => slot.id)
   const usage = await slotLib.getSlotUsage(ctx.db, ctx._, menuId, slotIds)
-  const slots = (menu.slots || []).map((slot) => slotsCore.slotAvailability(slot, usage[slot.id] || 0))
+  const slots = readSlots.map((slot) => slotsCore.slotAvailability(slot, usage[slot.id] || 0))
 
   return Object.assign({}, base, {
     published: true,
     title: menu.title || config.SHOP.name,
     slots,
     categories,
-    totalDishes: dishes.length
+    totalDishes: dishes.length,
+    menuVersion: menu.menuVersion || null,
+    updatedAt: menu.updatedAt || null
   })
 }
 

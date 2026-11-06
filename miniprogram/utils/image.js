@@ -1,4 +1,6 @@
-/** 选择本地图片并上传到云存储，返回 fileID */
+/** 选择本地图片：cloud 模式上传云存储；local 模式直接使用临时路径 */
+const dataSource = require('./data-source')
+
 function chooseAndUpload(folder) {
   return new Promise((resolve, reject) => {
     wx.chooseMedia({
@@ -9,6 +11,11 @@ function chooseAndUpload(folder) {
         const file = (res.tempFiles || [])[0]
         if (!file || !file.tempFilePath) {
           reject(new Error('未选择图片'))
+          return
+        }
+        if (dataSource.isLocalMode()) {
+          console.warn('[image] 当前为本地演示模式，图片只在本机临时可用')
+          resolve(file.tempFilePath)
           return
         }
         const match = String(file.tempFilePath).match(/\.([a-zA-Z0-9]+)$/)

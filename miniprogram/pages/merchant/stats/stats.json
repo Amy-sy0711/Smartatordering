@@ -1,4 +1,6 @@
 {
   "navigationBarTitleText": "当日收益",
-  "usingComponents": {}
+  "usingComponents": {
+    "merchant-exit": "/components/merchant-exit/index"
+  }
 }

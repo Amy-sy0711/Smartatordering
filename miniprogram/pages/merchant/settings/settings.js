@@ -1,5 +1,6 @@
-const api = require('../../../utils/api')
+const api = require('../../../utils/data-source')
 const image = require('../../../utils/image')
+const guard = require('../../../utils/merchant-guard')
 
 Page({
   data: {
@@ -14,7 +15,7 @@ Page({
   },
 
   onShow() {
-    this.load()
+    guard.requireMerchant().then(() => this.load()).catch(() => {})
   },
 
   load() {
@@ -83,6 +84,10 @@ Page({
     const url = this.data.transfer.qrImageUrl
     if (!url) return
     wx.previewImage({ urls: [url], current: url })
+  },
+
+  goDiagnose() {
+    wx.navigateTo({ url: '/pages/diagnose/diagnose' })
   },
 
   save() {
