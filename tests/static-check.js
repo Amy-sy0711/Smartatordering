@@ -286,6 +286,128 @@ if (fs.existsSync(merchantPagesDir)) {
   }
 }
 
+/* ------------- 14. 平台后台与商家后台的边界（不读业务明细） ------------- */
+const adminPolicy = require(path.join(ROOT, 'cloudfunctions', 'adminApi', 'core', 'policy'))
+const BIZ_COLLECTION_KEYS = ['ORDERS', 'DISHES', 'MENUS', 'CATEGORIES', 'PAYMENT_RECORDS', 'SETTINGS']
+const BUSINESS_FIELD_TOKENS = [/\bitems\s*:/, /\bbuyerOpenid\b/, /\bdishIds\b/, /\btotalCents\b/, /\bremark\b/, /\bphone\b/, /\baddress\b/]
+
+const adminApiIndexPath = path.join(ROOT, 'cloudfunctions', 'adminApi', 'index.js')
+if (fs.existsSync(adminApiIndexPath)) {
+  const source = read(adminApiIndexPath)
+  // 平台后台只允许计数/状态/配置：禁止 fetchAll 业务集合、禁止按业务集合取文档
+  for (const key of BIZ_COLLECTION_KEYS) {
+    if (new RegExp('fetchAll\\([^\\n]*COL\\.' + key + '\\b').test(source)) {
+      fail('adminApi 不得整表读取业务集合：COL.' + key)
+    }
+    if (new RegExp('getDoc\\([^\\n]*COL\\.' + key + '\\b').test(source)) {
+      fail('adminApi 不得读取业务集合文档：COL.' + key)
+    }
+  }
+  for (const token of BUSINESS_FIELD_TOKENS) {
+    if (token.test(source)) fail('adminApi 源码出现业务明细字段：' + token.source)
+  }
+  for (const action of adminPolicy.FORBIDDEN_BUSINESS_ACTIONS) {
+    if (adminPolicy.PLATFORM_ADMIN_ACTIONS.indexOf(action) >= 0) {
+      fail('平台 action 白名单混入业务读取接口：' + action)
+    }
+  }
+}
+
+// 管理员前台：不得出现业务读取 action / 业务字段
+const adminConsoleDir = path.join(ROOT, 'admin-console')
+if (fs.existsSync(adminConsoleDir)) {
+  walk(adminConsoleDir, (file) => {
+    if (!file.endsWith('.js')) return
+    const source = read(file)
+    for (const action of adminPolicy.FORBIDDEN_BUSINESS_ACTIONS) {
+      if (source.indexOf(action) >= 0) fail('管理台出现业务读取 action：' + action + '（' + rel(file) + '）')
+    }
+    for (const token of BUSINESS_FIELD_TOKENS) {
+      if (token.test(source)) fail('管理台源码出现业务明细字段：' + token.source + '（' + rel(file) + '）')
+    }
+  })
+}
+
+// 商家前台不得混用平台管理员 token / adminApi
+const merchantConsoleDir = path.join(ROOT, 'merchant-console')
+if (fs.existsSync(merchantConsoleDir)) {
+  walk(merchantConsoleDir, (file) => {
+    if (!file.endsWith('.js')) return
+    const source = read(file)
+    if (source.indexOf('adminApi') >= 0) fail('商家后台不得调用 adminApi：' + rel(file))
+    if (source.indexOf('ordering_admin_token') >= 0) fail('商家后台不得使用平台管理员 token：' + rel(file))
+  })
+}
+
+/* ------------- 15. 云函数业务查询必须带 merchantId 过滤 ------------- */
+const apiHandlersDir = path.join(ROOT, 'cloudfunctions', 'api', 'handlers')
+if (fs.existsSync(apiHandlersDir)) {
+  walk(apiHandlersDir, (file) => {
+    if (!file.endsWith('.js')) return
+    const source = read(file)
+    for (const key of BIZ_COLLECTION_KEYS) {
+      const marker = 'collection(COL.' + key + ')'
+      let from = 0
+      while (true) {
+        const start = source.indexOf(marker, from)
+        if (start < 0) break
+        from = start + marker.length
+        const window = source.slice(start, start + 700)
+        const endMatch = /(\.get\(|\.count\(|\.update\(|\.remove\(|\.add\()/.exec(window)
+        const chainEnd = endMatch ? endMatch.index : window.length
+        const chain = window.slice(marker.length, chainEnd)
+        const after = window.slice(chainEnd)
+        // 按租户前缀的文档 ID（.doc(menuId)）、条件含 merchantId、或 add 的数据里带 merchantId 均视为已隔离
+        if (chain.indexOf('merchantId') >= 0 || chain.indexOf('.doc(') >= 0) continue
+        if (endMatch && endMatch[1] === '.add(' && after.indexOf('merchantId') >= 0) continue
+        const line = source.slice(0, start).split('\n').length
+        fail('业务查询缺少 merchantId 过滤：' + rel(file) + ':' + line + ' COL.' + key)
+      }
+    }
+  })
+}
+
+/* ------------- 16. 两个控制台引用的云函数目录必须存在 ------------- */
+const consoleDirs = [adminConsoleDir, merchantConsoleDir]
+for (const dir of consoleDirs) {
+  if (!fs.existsSync(dir)) {
+    fail('控制台目录缺失：' + rel(dir))
+    continue
+  }
+  walk(dir, (file) => {
+    if (!file.endsWith('.js')) return
+    const source = read(file)
+    const pattern = /callFunction\(\s*['"]([A-Za-z0-9_-]+)['"]/g
+    let match = pattern.exec(source)
+    while (match) {
+      const fnDir = path.join(ROOT, 'cloudfunctions', match[1])
+      if (!fs.existsSync(fnDir)) fail('控制台调用了不存在的云函数：' + match[1] + '（' + rel(file) + '）')
+      match = pattern.exec(source)
+    }
+  })
+}
+
+/* ------------- 17. 环境自检仅平台管理员可进入 ------------- */
+const diagnoseJs = path.join(MP_ROOT, 'pages', 'diagnose', 'diagnose.js')
+if (fs.existsSync(diagnoseJs)) {
+  const source = read(diagnoseJs)
+  const adminOnly = source.indexOf("role === 'admin'") >= 0 || source.indexOf("role !== 'admin'") >= 0
+  if (!adminOnly || source.indexOf('health') < 0) {
+    fail('pages/diagnose 必须仅允许平台管理员进入（缺少管理员角色判断或 health 调用）')
+  }
+}
+walk(MP_ROOT, (file) => {
+  if (!file.endsWith('.wxml') && !file.endsWith('.js')) return
+  if (read(file).indexOf('goDiagnose') >= 0) fail('小程序仍存在自检入口：' + rel(file))
+})
+const merchantUiDir = path.join(MP_ROOT, 'pages', 'merchant')
+if (fs.existsSync(merchantUiDir)) {
+  walk(merchantUiDir, (file) => {
+    if (!file.endsWith('.wxml') && !file.endsWith('.js')) return
+    if (read(file).indexOf('本地演示') >= 0) fail('商家端仍出现本地演示模式入口：' + rel(file))
+  })
+}
+
 /* ------------------------------- 结果 ------------------------------- */
 console.log('静态校验统计：')
 console.log('  JS 文件        ' + stats.js)

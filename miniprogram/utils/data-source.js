@@ -11,6 +11,7 @@
 const cloudApi = require('./api')
 const localBackendFactory = require('./local-backend')
 const localStore = require('./local-store')
+const merchantContext = require('./merchant-context')
 
 const MODE_CLOUD = 'cloud'
 const MODE_LOCAL = 'local'
@@ -19,6 +20,22 @@ const MODE_STORAGE_KEY = 'ordering_data_mode_v1'
 
 let localBackend = null
 let cloudReady = false
+let simpleErrorMode = false
+
+/** 基础设施类错误：商家端只显示「系统暂时不可用，请联系管理员」，不暴露技术细节 */
+const INFRA_ERROR_CODES = {
+  CLOUD_UNAVAILABLE: true,
+  CALL_FAILED: true,
+  CLOUD_FUNCTION_FAILED: true,
+  BAD_RESPONSE: true,
+  INTERNAL_ERROR: true,
+  UNKNOWN_ACTION: true,
+  NO_CLOUD_ENV: true
+}
+
+function setErrorPrivacy(simple) {
+  simpleErrorMode = simple === true
+}
 
 function getAppSafe() {
   try {
@@ -141,9 +158,10 @@ function clearLocalSession() {
 }
 
 function call(action, payload) {
+  const scopedPayload = merchantContext.withMerchant(payload)
   if (getMode() === MODE_LOCAL) {
     try {
-      return Promise.resolve(getBackend().run(action, payload))
+      return Promise.resolve(getBackend().run(action, scopedPayload))
     } catch (err) {
       return Promise.reject(err)
     }
@@ -153,13 +171,14 @@ function call(action, payload) {
   } catch (err) {
     return Promise.reject(err)
   }
-  return cloudApi.call(action, payload)
+  return cloudApi.call(action, scopedPayload)
 }
 
 function callPayment(action, payload) {
+  const scopedPayload = merchantContext.withMerchant(payload)
   if (getMode() === MODE_LOCAL) {
     try {
-      return Promise.resolve(getBackend().run(action, payload))
+      return Promise.resolve(getBackend().run(action, scopedPayload))
     } catch (err) {
       return Promise.reject(err)
     }
@@ -169,7 +188,7 @@ function callPayment(action, payload) {
   } catch (err) {
     return Promise.reject(err)
   }
-  return cloudApi.callPayment(action, payload)
+  return cloudApi.callPayment(action, scopedPayload)
 }
 
 /**
@@ -184,17 +203,17 @@ function describeError(err) {
   if (code === 'CLOUD_UNAVAILABLE') {
     hint = '当前基础库或运行环境不支持云开发：请使用微信开发者工具的小程序模式，并把调试基础库调到 2.2.3 以上。'
   } else if (code === 'CALL_FAILED') {
-    hint = '云函数 api 不可达：确认 cloudfunctions/api 已「上传并部署（云端安装依赖）」，并检查 app.js 的 CLOUD_ENV 是否正确；可打开「自检」页逐项排查。'
+    hint = '云函数 api 不可达：确认 cloudfunctions/api 已「上传并部署（云端安装依赖）」，并检查 app.js 的 CLOUD_ENV 是否正确。'
   } else if (code === 'BAD_RESPONSE') {
     hint = '云函数返回格式异常：多半是云端代码不是最新版本，请重新部署 cloudfunctions/api。'
   } else if (code === 'UNKNOWN_ACTION') {
     hint = '云端不认识该接口：请重新部署 cloudfunctions/api，确保 handlers/router.js 为最新版本。'
   } else if (code === 'INTERNAL_ERROR') {
-    hint = '云函数内部异常：打开云开发控制台 → 云函数 → api → 日志查看堆栈；也可用「自检」页定位。'
+    hint = '云函数内部异常：请联系平台管理员查看云函数日志。'
   } else if (mode === MODE_LOCAL) {
-    hint = '当前为本地演示模式（数据只保存在本机，不会写入云端）。可在「自检」页切回云端模式。'
+    hint = '当前为本地演示模式（数据只保存在本机，不会写入云端）。切回云端需修改开发配置。'
   } else {
-    hint = '可打开「自检」页检查云环境、云函数部署、数据库集合与今日菜单状态。'
+    hint = '请稍后重试；持续失败请联系平台管理员。'
   }
 
   return { code, message, hint, mode, modeLabel: modeLabel() }
@@ -206,7 +225,21 @@ function showError(err, title, options) {
   const opts = options || {}
   if (typeof wx === 'undefined' || !wx.showModal) return info
 
-  // 云端不可达时给两个显式动作：重试 / 用本地演示（绝不自动切换模式）
+  // 商家端（或已开启隐私模式）：只给简短提示 + 重试，不暴露错误码、环境 ID、集合名
+  if (simpleErrorMode && INFRA_ERROR_CODES[info.code]) {
+    wx.showModal({
+      title: '系统暂时不可用',
+      content: '系统暂时不可用，请联系管理员。',
+      confirmText: '重试',
+      cancelText: '关闭',
+      success(res) {
+        if (res.confirm && typeof opts.onRetry === 'function') opts.onRetry()
+      }
+    })
+    return info
+  }
+
+  // 云端不可达：明确告知错误码，只给「重试」，绝不自动切换本地模式
   const cloudFail =
     info.mode === MODE_CLOUD &&
     (info.code === 'CALL_FAILED' || info.code === 'CLOUD_UNAVAILABLE' || info.code === 'NO_CLOUD_ENV')
@@ -215,16 +248,11 @@ function showError(err, title, options) {
       title: title || '云端不可用',
       content:
         '云端不可用：' + info.code + ' ' + info.message +
-        '\n\n' + (info.hint || '') +
-        '\n\n「用本地演示模式」的数据只保存在本机，不会写入云端，其他人看不到。',
+        '\n\n' + (info.hint || ''),
       confirmText: '重试',
-      cancelText: '用本地演示',
+      cancelText: '关闭',
       success(res) {
-        if (res.confirm) {
-          if (typeof opts.onRetry === 'function') opts.onRetry()
-        } else if (res.cancel) {
-          switchToLocal()
-        }
+        if (res.confirm && typeof opts.onRetry === 'function') opts.onRetry()
       }
     })
     return info
@@ -328,6 +356,7 @@ module.exports = {
   callPayment,
   describeError,
   showError,
+  setErrorPrivacy,
   setMode,
   switchToLocal,
   switchToCloud,

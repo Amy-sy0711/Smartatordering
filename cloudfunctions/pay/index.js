@@ -20,10 +20,16 @@ function mockTransactionId() {
   return 'MOCK' + Date.now() + Math.floor(Math.random() * 9000 + 1000)
 }
 
-async function readPaymentSettings() {
+/** 支付配置文档 ID：默认商家沿用旧 ID，其他商家按租户隔离 */
+function paymentDocId(merchantId) {
+  const mid = String(merchantId || 'merchant_001')
+  return mid === 'merchant_001' ? 'payment' : 'payment_' + mid
+}
+
+async function readPaymentSettings(merchantId) {
   let doc = null
   try {
-    const res = await db.collection(COL.SETTINGS).doc('payment').get()
+    const res = await db.collection(COL.SETTINGS).doc(paymentDocId(merchantId)).get()
     doc = res && res.data
   } catch (err) {
     doc = null
@@ -56,7 +62,7 @@ async function mockPay(order) {
   const transactionId = mockTransactionId()
   const res = await db
     .collection(COL.ORDERS)
-    .where({ _id: order._id, status: 'pending_pay' })
+    .where({ _id: order._id, status: 'pending_pay', merchantId: order.merchantId })
     .update({
       data: {
         status: 'paid',
@@ -104,13 +110,17 @@ async function createJsapiPayment(order) {
   }
 
   const now = new Date()
-  await db.collection(COL.ORDERS).doc(order._id).update({
-    data: {
-      payChannel: paymode.PAY_MODES.JSAPI,
-      prepayRequestedAt: now,
-      updatedAt: now
-    }
-  })
+  const updated = await db
+    .collection(COL.ORDERS)
+    .where({ _id: order._id, merchantId: order.merchantId })
+    .update({
+      data: {
+        payChannel: paymode.PAY_MODES.JSAPI,
+        prepayRequestedAt: now,
+        updatedAt: now
+      }
+    })
+  if (!updated.stats || !updated.stats.updated) fail('ORDER_NOT_FOUND', '订单不存在或不属于当前商家')
 
   // payment 交给前端 wx.requestPayment 使用
   return { mode: paymode.PAY_MODES.JSAPI, paid: false, orderId: order._id, payParams: res.payment }
@@ -122,7 +132,11 @@ async function jsapiPay(order) {
 
 /* ------------------------------ 统一入口 ----------------------------- */
 async function payOrder(action, openid, payload) {
-  const settings = await readPaymentSettings()
+  const order = await loadOrder(payload.orderId)
+  ensurePayableOrder(order, openid)
+
+  // 支付配置必须按订单所属租户读取，防止用 A 商家的支付设置处理 B 商家的订单
+  const settings = await readPaymentSettings(order.merchantId)
   const branch = paymode.resolvePayBranch({
     payMode: settings.payMode,
     wxpayEnabled: config.WXPAY.ENABLED,
@@ -140,9 +154,6 @@ async function payOrder(action, openid, payload) {
   }
 
   paymode.assertPayBranchUsable(branch)
-
-  const order = await loadOrder(payload.orderId)
-  ensurePayableOrder(order, openid)
 
   if (branch.mode === paymode.PAY_MODES.MOCK) return mockPay(order)
   return jsapiPay(order)

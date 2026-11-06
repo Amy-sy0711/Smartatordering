@@ -23,6 +23,30 @@
       </view>
     </view>
 
+    <view class="card">
+      <view class="row-between">
+        <view>
+          <view class="title">菜品分类（{{categories.length}}）</view>
+          <view class="muted">分类用于顾客端分组；停用的分类不展示，空分类也不会出现标题</view>
+        </view>
+      </view>
+      <view class="empty small" wx:if="{{!categories.length}}">还没有分类，新增后可在菜品里选择</view>
+      <view class="cat-row" wx:for="{{categories}}" wx:key="categoryId">
+        <input class="cat-name" value="{{item.name}}" maxlength="12" data-id="{{item.categoryId}}" bindblur="renameCategory" />
+        <text class="tag {{item.enabled ? 'tag--success' : 'tag--warn'}}">{{item.enabled ? '启用' : '停用'}}</text>
+        <view class="cat-ops">
+          <text class="cat-op" data-id="{{item.categoryId}}" data-dir="-1" bindtap="moveCategory">↑</text>
+          <text class="cat-op" data-id="{{item.categoryId}}" data-dir="1" bindtap="moveCategory">↓</text>
+          <text class="cat-op" data-id="{{item.categoryId}}" data-enabled="{{item.enabled ? 'true' : 'false'}}" bindtap="toggleCategory">{{item.enabled ? '停用' : '启用'}}</text>
+          <text class="cat-op cat-op--danger" data-id="{{item.categoryId}}" data-name="{{item.name}}" bindtap="deleteCategory">删除</text>
+        </view>
+      </view>
+      <view class="cat-add">
+        <input class="cat-add-input" value="{{newCategoryName}}" maxlength="12" bindinput="onCategoryNameInput" placeholder="新分类名称，如 盖饭" />
+        <view class="btn btn--ghost btn--small {{categorySaving ? 'btn--disabled' : ''}}" bindtap="addCategory">＋ 新增分类</view>
+      </view>
+    </view>
+
     <view class="card" wx:if="{{showPublish}}">
       <view class="section-title">发布设置</view>
       <view class="field">

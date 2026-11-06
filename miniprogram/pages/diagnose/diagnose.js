@@ -12,7 +12,7 @@ function buildClientChecks(env) {
       '当前数据模式',
       env.isLocal ? 'warn' : 'pass',
       env.modeLabel + (env.isLocal ? '（数据只保存在本机，不调用云函数）' : ''),
-      env.isLocal ? '如果要验证云端，请点下方「切换到云端模式」并重新自检' : '无需处理'
+      env.isLocal ? '本地演示模式仅用于开发调试；要验证云端请修改开发配置后重新编译' : '无需处理'
     )
   )
   checks.push(
@@ -58,7 +58,7 @@ function buildServerChecks(data) {
         ? identity.openid
         : '未获取到 openid（请在小程序模式运行，不要用「游客」或网页模式）',
       identity.openid
-        ? '复制后加入 merchant_admins.openids 数组，或写入 cloudfunctions/api/config.js 的 MERCHANT_OPENIDS'
+        ? '复制后写入 merchant_staff（_id=openid，merchantId + role），由平台管理台绑定员工'
         : '重新编译并以小程序模式打开；若仍为空，先部署 api 云函数'
     )
   )
@@ -70,7 +70,7 @@ function buildServerChecks(data) {
       identity.isMerchant ? '是商家，启动后会自动进入商家订单看板' : '当前不是商家，启动后进入顾客端菜单',
       identity.isMerchant
         ? '无需处理'
-        : '把上面的 openid 加入 merchant_admins 集合的 openids 数组，重新编译后再自检'
+        : '把上面的 openid 绑定到 merchant_staff（平台管理台 → 员工绑定），重新编译后再自检'
     )
   )
   checks.push(
@@ -105,7 +105,7 @@ function buildServerChecks(data) {
       '今日菜单是否已发布',
       today.menuPublished ? 'pass' : 'fail',
       today.menuPublished
-        ? '已发布：' + (today.menuTitle || '') + '（' + (today.dishCount || 0) + ' 个菜）'
+        ? '今日（' + (today.dateLabel || '') + '）已发布菜单'
         : '今日（' + (today.dateLabel || '') + '）尚未发布菜单',
       today.fix || (today.menuPublished ? '无需处理' : '商家看板 → 菜单管理 → 发布今日菜单')
     )
@@ -173,12 +173,28 @@ Page({
     cloudEnv: '',
     openid: '',
     isMerchant: false,
-    canSelfClaim: false,
+    isAdmin: false,
     reportText: ''
   },
 
   onLoad() {
-    this.run()
+    // 环境自检仅平台管理员可用；商家/顾客直达都会被拦回菜单
+    api
+      .whoami()
+      .then((info) => {
+        if (info && info.role === 'admin') {
+          this.setData({ isAdmin: true })
+          this.run()
+          return
+        }
+        wx.showToast({ title: '仅平台管理员可使用', icon: 'none' })
+        setTimeout(() => wx.reLaunch({ url: '/pages/menu/menu' }), 300)
+      })
+      .catch((err) => {
+        console.error('[diagnose] 身份校验失败', err)
+        wx.showToast({ title: '系统暂时不可用，请联系管理员', icon: 'none' })
+        setTimeout(() => wx.reLaunch({ url: '/pages/menu/menu' }), 300)
+      })
   },
 
   run() {
@@ -234,7 +250,6 @@ Page({
       summaryText,
       openid: identity.openid || (data && data.openid) || '',
       isMerchant: identity.isMerchant === true,
-      canSelfClaim: identity.canSelfClaim === true,
       reportText: buildReport(env, checks, runAt)
     })
   },
@@ -249,45 +264,6 @@ Page({
       return
     }
     wx.setClipboardData({ data: this.data.openid })
-  },
-
-  claimSelf() {
-    api
-      .claimSelfMerchant()
-      .then(() => {
-        wx.showToast({ title: '已加入商家白名单', icon: 'none' })
-        this.run()
-      })
-      .catch((err) => {
-        api.showError(err, '加入商家失败')
-        this.run()
-      })
-  },
-
-  toggleMode() {
-    if (this.data.isLocal) {
-      wx.showModal({
-        title: '切回云端模式',
-        content: '将清空本地演示数据与本地商家标记，之后的数据全部读写云端。确认切换？',
-        confirmText: '切回云端',
-        success: (res) => {
-          if (res.confirm) api.switchToCloud()
-        }
-      })
-      return
-    }
-    wx.showModal({
-      title: '切换到本地演示模式',
-      content: '本地演示的数据只保存在本机，不会写入云端，其他人看不到。确认切换？',
-      confirmText: '用本地演示',
-      success: (res) => {
-        if (res.confirm) api.switchToLocal()
-      }
-    })
-  },
-
-  goLocalMerchant() {
-    api.enterMerchantView()
   },
 
   goHome() {

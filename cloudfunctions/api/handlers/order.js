@@ -10,9 +10,11 @@ const state = require('../core/state')
 const paymode = require('../core/paymode')
 const { fail } = require('../core/errors')
 const dbLib = require('../lib/db')
-const authLib = require('../lib/auth')
+const identityLib = require('../lib/identity')
+const identityCore = require('../core/identity')
 const slotLib = require('../lib/slots')
 const settingsLib = require('../lib/settings')
+const tenant = require('../core/tenant')
 const menuHandler = require('./menu')
 
 function pad4(n) {
@@ -25,10 +27,17 @@ function isDuplicateErr(err) {
   return /duplicate|E11000|already exists/i.test(message) || (err && err.errCode === -502001)
 }
 
-/** 订单号：YYYYMMDD-0001（序号用 counters 集合按天自增，事务失败时退化为原子 inc） */
-async function nextOrderNo(ctx, dateKey) {
+/**
+ * 订单号：YYYYMMDD-0001。默认商家沿用旧计数器（seq_YYYYMMDD），
+ * 其他商家使用 seq_<merchantId>_YYYYMMDD，保证租户间序号互不干扰。
+ */
+function counterIdOf(dateKey, merchantId) {
+  return tenant.counterIdOf(dateKey, merchantId)
+}
+
+async function nextOrderNo(ctx, dateKey, merchantId) {
   const compact = String(dateKey).replace(/-/g, '')
-  const counterId = 'seq_' + compact
+  const counterId = counterIdOf(dateKey, merchantId)
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
       const seq = await ctx.db.runTransaction(async (transaction) => {
@@ -41,21 +50,21 @@ async function nextOrderNo(ctx, dateKey) {
         }
         const next = ((doc && doc.seq) || 0) + 1
         await transaction.collection(COL.COUNTERS).doc(counterId).set({
-          data: { date: dateKey, seq: next, updatedAt: new Date() }
+          data: { merchantId, date: dateKey, seq: next, updatedAt: new Date() }
         })
         return next
       })
       return compact + '-' + pad4(seq)
     } catch (err) {
-      if (attempt === 2) return nextOrderNoFallback(ctx, dateKey)
+      if (attempt === 2) return nextOrderNoFallback(ctx, dateKey, merchantId)
     }
   }
-  return nextOrderNoFallback(ctx, dateKey)
+  return nextOrderNoFallback(ctx, dateKey, merchantId)
 }
 
-async function nextOrderNoFallback(ctx, dateKey) {
+async function nextOrderNoFallback(ctx, dateKey, merchantId) {
   const compact = String(dateKey).replace(/-/g, '')
-  const counterId = 'seq_' + compact
+  const counterId = counterIdOf(dateKey, merchantId)
   const upd = await ctx.db
     .collection(COL.COUNTERS)
     .doc(counterId)
@@ -65,7 +74,7 @@ async function nextOrderNoFallback(ctx, dateKey) {
     await ctx.db
       .collection(COL.COUNTERS)
       .doc(counterId)
-      .set({ data: { date: dateKey, seq: 1, updatedAt: new Date() } })
+      .set({ data: { merchantId, date: dateKey, seq: 1, updatedAt: new Date() } })
       .catch(() => {})
   }
   const doc = await dbLib.getDocOrNull(ctx.db, COL.COUNTERS, counterId)
@@ -75,10 +84,10 @@ async function nextOrderNoFallback(ctx, dateKey) {
 
 async function createOrderDoc(ctx, params) {
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const orderNo = await nextOrderNo(ctx, params.dateKey)
+    const orderNo = await nextOrderNo(ctx, params.dateKey, params.merchantId)
     const now = new Date()
     const doc = {
-      merchantId: config.MERCHANT_ID,
+      merchantId: params.merchantId,
       orderNo,
       date: params.dateKey,
       menuId: params.menuId,
@@ -125,8 +134,33 @@ async function create(ctx) {
   const payload = ctx.payload || {}
   if (!ctx.openid) fail('NO_OPENID', '未获取到用户身份，请在小程序内下单')
 
+  const identity = ctx.identity || await identityLib.resolveIdentity(ctx)
+  const gate = identityCore.canCreateOrder(identity)
+  if (!gate.allowed) fail(gate.code, gate.message)
+  const merchantId = identity.merchantId
+  const flags = identity.merchantFlags || {}
+
+  // 平台功能开关：停用下单 / 并发上限（管理台按租户配置）
+  if (flags.disableOrdering === true) {
+    fail('ORDERING_DISABLED', '该商家已暂停接单，请稍后再试')
+  }
+  const maxConcurrent = Number.isInteger(flags.maxConcurrentOrders) ? flags.maxConcurrentOrders : 0
+  if (maxConcurrent > 0) {
+    const activeRes = await ctx.db
+      .collection(COL.ORDERS)
+      .where({
+        merchantId,
+        date: dates.shanghaiDateKey(),
+        status: ctx._.in([state.STATUS.PENDING_PAY, state.STATUS.PENDING_CONFIRM, state.STATUS.PAID, state.STATUS.ACCEPTED, state.STATUS.READY])
+      })
+      .count()
+    if ((activeRes && activeRes.total) >= maxConcurrent) {
+      fail('CONCURRENCY_LIMIT', '当前订单较多，请稍后再试')
+    }
+  }
+
   const dateKey = dates.shanghaiDateKey()
-  const menuId = menuHandler.menuIdOf(dateKey)
+  const menuId = menuHandler.menuIdOf(dateKey, merchantId)
   const menu = await dbLib.getDocOrNull(ctx.db, COL.MENUS, menuId)
   if (!menu || menu.published === false) fail('MENU_NOT_PUBLISHED', '今日菜单尚未发布，暂时无法下单')
 
@@ -138,7 +172,7 @@ async function create(ctx) {
   }
   const dishes = dishIds.length
     ? await dbLib.fetchAll(() =>
-        ctx.db.collection(COL.DISHES).where({ merchantId: config.MERCHANT_ID, _id: ctx._.in(dishIds) })
+        ctx.db.collection(COL.DISHES).where({ merchantId, _id: ctx._.in(dishIds) })
       )
     : []
 
@@ -152,14 +186,23 @@ async function create(ctx) {
 
   const slot = slotsCore.findSlot(menu, payload.slotId)
   const remark = String(payload.remark || '').replace(/\s+/g, ' ').trim().slice(0, config.MAX_REMARK_LENGTH)
-  const settings = await settingsLib.getPaymentSettings(ctx.db)
+  const settings = await settingsLib.getPaymentSettings(ctx.db, merchantId)
   const payChannel = settings.payMode
 
   await slotLib.reserveSlot(ctx.db, ctx._, menuId, dateKey, slot)
 
   let created = null
   try {
-    created = await createOrderDoc(ctx, { openid: ctx.openid, dateKey, menuId, slot, priced, remark, payChannel })
+    created = await createOrderDoc(ctx, {
+      openid: ctx.openid,
+      merchantId,
+      dateKey,
+      menuId,
+      slot,
+      priced,
+      remark,
+      payChannel
+    })
   } catch (err) {
     await slotLib.releaseSlot(ctx.db, ctx._, menuId, slot.id).catch(() => {})
     throw err
@@ -173,6 +216,8 @@ async function create(ctx) {
     totalCents: priced.totalCents,
     totalText: money.formatCents(priced.totalCents),
     totalQty: priced.totalQty,
+    merchantId,
+    merchantName: identity.merchantName,
     payChannel,
     payChannelLabel: paymode.PAY_MODE_LABELS[payChannel],
     transfer: settings.transfer,
@@ -264,10 +309,17 @@ function availableActions(order, isMerchant) {
 async function getOrderForUser(ctx, orderId) {
   const id = String(orderId || '')
   if (!id) fail('ORDER_ID_REQUIRED', '缺少订单号')
-  const order = await dbLib.getDocOrNull(ctx.db, COL.ORDERS, id)
+  const identity = ctx.identity || await identityLib.resolveIdentity(ctx)
+  // 租户隔离：订单查询必须同时带 merchantId，不能只按全局唯一 ID 取
+  const res = await ctx.db
+    .collection(COL.ORDERS)
+    .where({ _id: id, merchantId: identity.merchantId })
+    .limit(1)
+    .get()
+  const order = (res.data && res.data[0]) || null
   if (!order) fail('ORDER_NOT_FOUND', '订单不存在')
-  const isMerchant = await authLib.isMerchant(ctx.db, ctx.openid)
-  if (order.buyerOpenid !== ctx.openid && !isMerchant) fail('FORBIDDEN', '无权查看该订单')
+  if (!identityCore.canAccessOrder(identity, order)) fail('FORBIDDEN', '无权查看该订单')
+  ctx.identity = identity
   return order
 }
 
@@ -275,26 +327,35 @@ async function list(ctx) {
   const payload = ctx.payload || {}
   const page = Math.max(Number(payload.page) || 1, 1)
   const size = 20
+  const identity = ctx.identity || await identityLib.resolveIdentity(ctx)
+  // 只列当前商家下的本人订单；不采用前端传入的 merchantId
   const res = await ctx.db
     .collection(COL.ORDERS)
-    .where({ merchantId: config.MERCHANT_ID, buyerOpenid: ctx.openid })
+    .where({ buyerOpenid: ctx.openid, merchantId: identity.merchantId })
     .orderBy('createdAt', 'desc')
     .skip((page - 1) * size)
     .limit(size)
     .get()
-  const listData = (res.data || []).map(orderView)
+  const listData = (res.data || []).map((order) => {
+    const view = orderView(order)
+    view.merchantId = order.merchantId || ''
+    return view
+  })
   return { page, list: listData, hasMore: listData.length === size }
 }
 
 async function detail(ctx) {
   const order = await getOrderForUser(ctx, (ctx.payload || {}).orderId)
-  const isMerchant = await authLib.isMerchant(ctx.db, ctx.openid)
-  const payment = await menuHandler.paymentInfo(ctx.db)
+  const identity = ctx.identity || {}
+  const isMerchant = identityCore.canAccessOrder(identity, order) && identity.role !== 'customer'
+  const payment = await menuHandler.paymentInfo(ctx.db, order.merchantId)
   const totalCents = money.assertCents(order.totalCents || 0, '订单金额')
 
   return {
     orderId: order._id,
     orderNo: order.orderNo,
+    merchantId: order.merchantId || '',
+    merchantName: identity.merchantId === order.merchantId ? identity.merchantName : '',
     date: order.date,
     status: order.status,
     statusText: state.STATUS_TEXT[order.status] || order.status,
@@ -337,7 +398,7 @@ async function markTransferred(ctx) {
   const order = await getOrderForUser(ctx, payload.orderId)
   if (order.buyerOpenid !== ctx.openid) fail('FORBIDDEN', '只有下单本人可以标记转账')
 
-  const settings = await settingsLib.getPaymentSettings(ctx.db)
+  const settings = await settingsLib.getPaymentSettings(ctx.db, order.merchantId)
   if (settings.payMode !== paymode.PAY_MODES.TRANSFER) {
     fail('PAY_MODE_MISMATCH', '当前收款方式已变更，请刷新后重试')
   }
@@ -346,7 +407,7 @@ async function markTransferred(ctx) {
   const note = String(payload.note || '').trim().slice(0, 40)
   const res = await ctx.db
     .collection(COL.ORDERS)
-    .where({ _id: order._id, status: state.STATUS.PENDING_PAY })
+    .where({ _id: order._id, status: state.STATUS.PENDING_PAY, merchantId: order.merchantId })
     .update({
       data: {
         status: target,
@@ -365,13 +426,19 @@ async function markTransferred(ctx) {
 /** 顾客/商家取消订单（已收款订单会标记为退款口径） */
 async function cancel(ctx) {
   const order = await getOrderForUser(ctx, (ctx.payload || {}).orderId)
-  const isMerchant = await authLib.isMerchant(ctx.db, ctx.openid)
+  const identity = ctx.identity || {}
+  const isBuyer = order.buyerOpenid === ctx.openid
+  const isMerchant = !isBuyer && identityCore.canAccessOrder(identity, order)
+  if (isMerchant) {
+    const decision = identityCore.decideMerchantAccess(identity, { write: true })
+    if (!decision.allowed) fail(decision.code, decision.message)
+  }
   const target = state.assertAction(order.status, 'cancel')
   const refunded = state.hasReceivedMoney(order)
 
   const res = await ctx.db
     .collection(COL.ORDERS)
-    .where({ _id: order._id, status: order.status })
+    .where({ _id: order._id, status: order.status, merchantId: order.merchantId })
     .update({
       data: {
         status: target,
@@ -396,11 +463,11 @@ async function reorder(ctx) {
   if (order.buyerOpenid !== ctx.openid) fail('FORBIDDEN', '只有下单本人可以使用再来一单')
 
   const dateKey = dates.shanghaiDateKey()
-  const menu = await dbLib.getDocOrNull(ctx.db, COL.MENUS, menuHandler.menuIdOf(dateKey))
+  const menu = await dbLib.getDocOrNull(ctx.db, COL.MENUS, menuHandler.menuIdOf(dateKey, order.merchantId))
   const dishIds = (order.items || []).map((item) => item.dishId)
   const dishes = dishIds.length
     ? await dbLib.fetchAll(() =>
-        ctx.db.collection(COL.DISHES).where({ merchantId: config.MERCHANT_ID, _id: ctx._.in(dishIds) })
+        ctx.db.collection(COL.DISHES).where({ merchantId: order.merchantId, _id: ctx._.in(dishIds) })
       )
     : []
   const dishMap = {}

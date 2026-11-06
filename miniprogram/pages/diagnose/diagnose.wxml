@@ -19,11 +19,7 @@
       <text class="copy" bindtap="copyOpenid">复制</text>
     </view>
     <view class="mono identity-value" selectable>{{openid}}</view>
-    <view class="identity-role">是否商家：{{isMerchant ? '是（启动后自动进入商家看板）' : '否（启动后进入顾客端菜单）'}}</view>
-    <button class="btn btn--ghost btn--block claim-btn" wx:if="{{canSelfClaim}}" bindtap="claimSelf">
-      将我的 openid 加为商家（仅空集合时一次性生效）
-    </button>
-    <view class="identity-note">上线前请把 ALLOW_SELF_CLAIM 改为 false，并手动维护 merchant_admins</view>
+    <view class="identity-role">角色：{{isAdmin ? '平台管理员' : (isMerchant ? '商家' : '顾客')}}</view>
   </view>
 
   <view class="card check" wx:for="{{checks}}" wx:key="key">
@@ -36,7 +32,6 @@
   </view>
 
   <view class="card actions-card">
-    <button class="btn btn--ghost btn--block action-row" bindtap="toggleMode">{{isLocal ? '切回云端模式（清空本地演示数据）' : '用本地演示模式（数据不写云端）'}}</button>
     <button class="btn btn--block action-row" bindtap="goHome">返回首页</button>
   </view>
 </view>

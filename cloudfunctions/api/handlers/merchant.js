@@ -11,40 +11,44 @@ const state = require('../core/state')
 const statsCore = require('../core/stats')
 const paymode = require('../core/paymode')
 const dbLib = require('../lib/db')
-const authLib = require('../lib/auth')
 const slotLib = require('../lib/slots')
 const settingsLib = require('../lib/settings')
+const identityLib = require('../lib/identity')
+const auditLib = require('../lib/audit')
+const exportCore = require('../core/export')
 const menuHandler = require('./menu')
 const orderHandler = require('./order')
 
-async function requireMerchant(ctx) {
-  return authLib.ensureMerchant(ctx.db, ctx._, ctx.openid)
+async function requireMerchant(ctx, options) {
+  return identityLib.requireMerchant(ctx, options)
 }
 
-/** 商家入口准入检查；claim=true 时尝试自助成为商家（仅演示模式） */
+function merchantIdOf(identity) {
+  return identityLib.merchantIdOf(identity)
+}
+
+/** 商家入口准入检查；不再自动 bootstrap，商家关系由管理台维护 */
 async function checkAccess(ctx) {
-  const payload = ctx.payload || {}
-  let bootstrapped = false
-  if (payload.claim) {
-    const result = await authLib.ensureMerchant(ctx.db, ctx._, ctx.openid)
-    bootstrapped = result.bootstrapped
-  }
-  const isMerchant = await authLib.isMerchant(ctx.db, ctx.openid)
+  const identity = ctx.identity || await identityLib.resolveIdentity(ctx)
   return {
-    isMerchant,
-    bootstrapped,
-    openid: ctx.openid,
-    merchantId: config.MERCHANT_ID,
-    canBootstrap: authLib.bootstrapAllowed()
+    isMerchant: identity.isMerchant,
+    role: identity.role,
+    openid: identity.openid,
+    merchantId: identity.merchantId,
+    merchantName: identity.merchantName,
+    merchantStatus: identity.merchantStatus,
+    bootstrapped: false,
+    canBootstrap: false
   }
 }
 
 /* ------------------------------ 菜品管理 ------------------------------ */
 
 async function listDishes(ctx) {
-  await requireMerchant(ctx)
+  const identity = await requireMerchant(ctx)
+  const merchantId = merchantIdOf(identity)
   const dishes = await dbLib.fetchAll(() =>
-    ctx.db.collection(COL.DISHES).where({ merchantId: config.MERCHANT_ID }).orderBy('sortOrder', 'asc')
+    ctx.db.collection(COL.DISHES).where({ merchantId }).orderBy('sortOrder', 'asc')
   )
   dishes.sort((a, b) => {
     const ao = Number.isInteger(a.sortOrder) ? a.sortOrder : 0
@@ -111,21 +115,22 @@ function sanitizeDish(input) {
 }
 
 async function saveDish(ctx) {
-  await requireMerchant(ctx)
+  const identity = await requireMerchant(ctx, { write: true, ownerOnly: true })
+  const merchantId = merchantIdOf(identity)
   const payload = ctx.payload || {}
   const data = sanitizeDish(payload.dish)
   const dishId = String(payload.dishId || '')
 
   if (dishId) {
     const existing = await dbLib.getDocOrNull(ctx.db, COL.DISHES, dishId)
-    if (!existing) fail('DISH_NOT_FOUND', '菜品不存在')
+    if (!existing || existing.merchantId !== merchantId) fail('DISH_NOT_FOUND', '菜品不存在')
     await ctx.db.collection(COL.DISHES).doc(dishId).update({ data: Object.assign({}, data, { updatedAt: new Date() }) })
     return { dishId, created: false }
   }
 
   const res = await ctx.db.collection(COL.DISHES).add({
     data: Object.assign({}, data, {
-      merchantId: config.MERCHANT_ID,
+      merchantId,
       createdAt: new Date(),
       updatedAt: new Date()
     })
@@ -134,48 +139,222 @@ async function saveDish(ctx) {
 }
 
 async function toggleDish(ctx) {
-  await requireMerchant(ctx)
+  const identity = await requireMerchant(ctx, { write: true, ownerOnly: true })
+  const merchantId = merchantIdOf(identity)
   const payload = ctx.payload || {}
   const field = String(payload.field || '')
   if (field !== 'onSale' && field !== 'soldOut') fail('FIELD_INVALID', '只支持切换 onSale / soldOut')
   const dishId = String(payload.dishId || '')
   const existing = await dbLib.getDocOrNull(ctx.db, COL.DISHES, dishId)
-  if (!existing) fail('DISH_NOT_FOUND', '菜品不存在')
+  if (!existing || existing.merchantId !== merchantId) fail('DISH_NOT_FOUND', '菜品不存在')
   const value = payload.value === true
   await ctx.db.collection(COL.DISHES).doc(dishId).update({ data: { [field]: value, updatedAt: new Date() } })
   return { dishId, field, value }
 }
 
 async function deleteDish(ctx) {
-  await requireMerchant(ctx)
+  const identity = await requireMerchant(ctx, { write: true, ownerOnly: true })
+  const merchantId = merchantIdOf(identity)
   const dishId = String((ctx.payload || {}).dishId || '')
   const existing = await dbLib.getDocOrNull(ctx.db, COL.DISHES, dishId)
-  if (!existing) fail('DISH_NOT_FOUND', '菜品不存在')
+  if (!existing || existing.merchantId !== merchantId) fail('DISH_NOT_FOUND', '菜品不存在')
   await ctx.db.collection(COL.DISHES).doc(dishId).remove()
   // 同步从今日菜单移除，避免菜单里出现幽灵菜品
   const dateKey = dates.shanghaiDateKey()
   await ctx.db
     .collection(COL.MENUS)
-    .doc(menuHandler.menuIdOf(dateKey))
-    .update({ data: { dishIds: ctx._.pull(dishId), updatedAt: new Date() } })
+    .doc(menuHandler.menuIdOf(dateKey, merchantId))
+    .update({ data: { dishIds: ctx._.pull(dishId), updatedAt: new Date(), menuVersion: Date.now() } })
     .catch(() => {})
   return { dishId, removed: true }
 }
 
+/* ------------------------------ 分类管理 ------------------------------ */
+
+function cleanCategoryName(raw) {
+  const name = String(raw === undefined || raw === null ? '' : raw).trim()
+  if (!name || name.length > 12) fail('CATEGORY_NAME_INVALID', '分类名称需为 1-12 个字符')
+  return name
+}
+
+async function listCategories(ctx) {
+  const identity = await requireMerchant(ctx)
+  const merchantId = merchantIdOf(identity)
+  const docs = await dbLib.fetchAll(() =>
+    ctx.db.collection(COL.CATEGORIES).where({ merchantId }).orderBy('sort', 'asc')
+  )
+  docs.sort((a, b) => (Number(a.sort) || 0) - (Number(b.sort) || 0) || String(a.name).localeCompare(String(b.name)))
+  return {
+    list: docs.map((doc) => ({
+      categoryId: doc._id,
+      name: doc.name || '',
+      sort: Number.isInteger(doc.sort) ? doc.sort : 0,
+      enabled: doc.enabled !== false
+    }))
+  }
+}
+
+async function saveCategory(ctx) {
+  const identity = await requireMerchant(ctx, { write: true, ownerOnly: true })
+  const merchantId = merchantIdOf(identity)
+  const payload = ctx.payload || {}
+  const categoryId = String(payload.categoryId || '')
+  const name = cleanCategoryName(payload.name)
+  const docs = await dbLib.fetchAll(() => ctx.db.collection(COL.CATEGORIES).where({ merchantId }))
+  const duplicate = docs.filter((doc) => String(doc.name || '').trim() === name && doc._id !== categoryId)
+  if (duplicate.length) fail('CATEGORY_DUPLICATED', '分类名称已存在')
+
+  let sort = Number(payload.sort)
+  if (!Number.isFinite(sort)) {
+    sort = docs.reduce((max, doc) => Math.max(max, Number(doc.sort) || 0), 0) + 1
+  }
+  sort = Math.floor(sort)
+  const enabled = payload.enabled !== false
+
+  if (categoryId) {
+    const existing = await dbLib.getDocOrNull(ctx.db, COL.CATEGORIES, categoryId)
+    if (!existing || existing.merchantId !== merchantId) fail('CATEGORY_NOT_FOUND', '分类不存在')
+    await ctx.db.collection(COL.CATEGORIES).doc(categoryId).update({
+      data: { name, sort, enabled, updatedAt: new Date() }
+    })
+    if (existing.name && existing.name !== name) {
+      const dishes = await dbLib.fetchAll(() =>
+        ctx.db.collection(COL.DISHES).where({ merchantId, category: existing.name })
+      )
+      for (const dish of dishes) {
+        await ctx.db.collection(COL.DISHES).doc(dish._id).update({ data: { category: name, updatedAt: new Date() } })
+      }
+      return { categoryId, created: false, movedDishes: dishes.length }
+    }
+    return { categoryId, created: false, movedDishes: 0 }
+  }
+
+  const res = await ctx.db.collection(COL.CATEGORIES).add({
+    data: { merchantId, name, sort, enabled, createdAt: new Date(), updatedAt: new Date() }
+  })
+  return { categoryId: res._id, created: true }
+}
+
+async function deleteCategory(ctx) {
+  const identity = await requireMerchant(ctx, { write: true, ownerOnly: true })
+  const merchantId = merchantIdOf(identity)
+  const categoryId = String((ctx.payload || {}).categoryId || '')
+  const existing = await dbLib.getDocOrNull(ctx.db, COL.CATEGORIES, categoryId)
+  if (!existing || existing.merchantId !== merchantId) fail('CATEGORY_NOT_FOUND', '分类不存在')
+  const dishes = await dbLib.fetchAll(() =>
+    ctx.db.collection(COL.DISHES).where({ merchantId, category: existing.name })
+  )
+  for (const dish of dishes) {
+    await ctx.db.collection(COL.DISHES).doc(dish._id).update({ data: { category: '其他', updatedAt: new Date() } })
+  }
+  await ctx.db.collection(COL.CATEGORIES).doc(categoryId).remove()
+  return { categoryId, removed: true, movedDishes: dishes.length }
+}
+
+/* ------------------------------ 员工管理（商家后台） ------------------------------ */
+
+const STAFF_OPENID_RE = /^[A-Za-z0-9_-]{6,64}$/
+
+async function staffList(ctx) {
+  const identity = await requireMerchant(ctx, { ownerOnly: true })
+  const merchantId = merchantIdOf(identity)
+  const docs = await dbLib.fetchAll(() => ctx.db.collection(COL.MERCHANT_STAFF).where({ merchantId }))
+  return {
+    merchantId,
+    list: docs.map((doc) => ({
+      openid: doc._id,
+      role: doc.role === 'owner' ? 'owner' : 'staff',
+      name: doc.name || '',
+      createdAt: doc.createdAt || null
+    }))
+  }
+}
+
+async function staffBind(ctx) {
+  const identity = await requireMerchant(ctx, { write: true, ownerOnly: true })
+  const merchantId = merchantIdOf(identity)
+  const payload = ctx.payload || {}
+  const openid = String(payload.openid || '').trim()
+  if (!STAFF_OPENID_RE.test(openid)) fail('OPENID_INVALID', '请填写有效的小程序 openid')
+  if (openid === identity.openid) fail('STAFF_SELF', '当前账号已经是店主，无需重复绑定')
+
+  const existing = await dbLib.getDocOrNull(ctx.db, COL.MERCHANT_STAFF, openid)
+  if (existing && existing.merchantId && existing.merchantId !== merchantId) {
+    fail('STAFF_OTHER_MERCHANT', '该 openid 已绑定其他商家，请先在平台后台解绑')
+  }
+  const role = payload.role === 'owner' ? 'owner' : 'staff'
+  const merchantIds = Array.isArray(existing && existing.merchantIds) ? existing.merchantIds.slice() : []
+  if (merchantIds.indexOf(merchantId) < 0) merchantIds.push(merchantId)
+  await ctx.db.collection(COL.MERCHANT_STAFF).doc(openid).set({
+    data: {
+      openid,
+      merchantId,
+      merchantIds,
+      role,
+      name: String(payload.name || '').trim().slice(0, 20) || (role === 'owner' ? '店主' : '员工'),
+      createdAt: (existing && existing.createdAt) || new Date(),
+      updatedAt: new Date()
+    }
+  })
+  return { openid, merchantId, role }
+}
+
+async function staffUnbind(ctx) {
+  const identity = await requireMerchant(ctx, { write: true, ownerOnly: true })
+  const merchantId = merchantIdOf(identity)
+  const openid = String((ctx.payload || {}).openid || '').trim()
+  if (!STAFF_OPENID_RE.test(openid)) fail('OPENID_INVALID', 'openid 不合法')
+  const existing = await dbLib.getDocOrNull(ctx.db, COL.MERCHANT_STAFF, openid)
+  if (!existing || existing.merchantId !== merchantId) fail('STAFF_NOT_FOUND', '该 openid 不属于当前商家')
+  if (existing.role === 'owner') fail('STAFF_OWNER_PROTECTED', '不能解绑店主账号')
+  await ctx.db.collection(COL.MERCHANT_STAFF).doc(openid).remove()
+  return { openid, removed: true }
+}
+
+/* ------------------------------ 导出（仅本租户） ------------------------------ */
+
+async function exportOrders(ctx) {
+  const identity = await requireMerchant(ctx)
+  const merchantId = merchantIdOf(identity)
+  const payload = ctx.payload || {}
+  const dateKey = String(payload.date || dates.shanghaiDateKey())
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) fail('DATE_INVALID', '日期格式必须为 YYYY-MM-DD')
+
+  const orders = await dbLib.fetchAll(() =>
+    ctx.db.collection(COL.ORDERS).where({ merchantId, date: dateKey }).orderBy('createdAt', 'asc')
+  )
+  const result = exportCore.buildOrdersCsv(orders, merchantId)
+  // 审计只记录条数与操作者，绝不写入订单内容
+  await auditLib.writeAudit(ctx.db, {
+    actorType: 'merchant',
+    actorId: identity.openid || merchantId,
+    action: 'merchant.exportOrders',
+    merchantId,
+    result: 'ok',
+    code: 'OK',
+    source: 'merchant-console'
+  })
+  return { date: dateKey, count: result.count, csv: result.csv }
+}
+
 /* ------------------------------ 菜单发布 ------------------------------ */
 
-async function allOnSaleDishIds(ctx) {
-  const dishes = await dbLib.fetchAll(() => ctx.db.collection(COL.DISHES).where({ merchantId: config.MERCHANT_ID }))
+async function allOnSaleDishIds(ctx, merchantId) {
+  const dishes = await dbLib.fetchAll(() => ctx.db.collection(COL.DISHES).where({ merchantId }))
   return dishes.filter((dish) => dish.onSale !== false).map((dish) => dish._id)
 }
 
 async function publishMenuInternal(ctx, options) {
   const opts = options || {}
+  const merchantId = String(opts.merchantId || (ctx.identity && ctx.identity.merchantId) || config.DEFAULT_MERCHANT_ID)
   const dateKey = opts.date || dates.shanghaiDateKey()
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) fail('DATE_INVALID', '日期格式必须为 YYYY-MM-DD')
 
-  const menuId = menuHandler.menuIdOf(dateKey)
+  const menuId = menuHandler.menuIdOf(dateKey, merchantId)
   const existing = await dbLib.getDocOrNull(ctx.db, COL.MENUS, menuId)
+  if (existing && existing.merchantId && existing.merchantId !== merchantId) {
+    fail('FORBIDDEN', '不能修改其他商家的菜单')
+  }
   const slots = slotsCore.normalizeSlots(
     opts.slots || (existing && existing.slots) || config.DEFAULT_SLOTS,
     config.DEFAULT_SLOT_LIMIT
@@ -189,14 +368,14 @@ async function publishMenuInternal(ctx, options) {
       if (value && raw.indexOf(value) < 0) raw.push(value)
     }
     const found = await dbLib.fetchAll(() =>
-      ctx.db.collection(COL.DISHES).where({ merchantId: config.MERCHANT_ID, _id: ctx._.in(raw) })
+      ctx.db.collection(COL.DISHES).where({ merchantId, _id: ctx._.in(raw) })
     )
     if (found.length !== raw.length) fail('DISH_NOT_FOUND', '部分菜品已不存在，请刷新后重新选择')
     dishIds = raw
   } else if (existing && Array.isArray(existing.dishIds) && existing.dishIds.length) {
     dishIds = existing.dishIds
   } else {
-    dishIds = await allOnSaleDishIds(ctx)
+    dishIds = await allOnSaleDishIds(ctx, merchantId)
   }
   if (!dishIds.length) fail('DISH_EMPTY', '没有可发布的菜品，请先新增菜品')
 
@@ -204,7 +383,7 @@ async function publishMenuInternal(ctx, options) {
 
   await ctx.db.collection(COL.MENUS).doc(menuId).set({
     data: {
-      merchantId: config.MERCHANT_ID,
+      merchantId,
       date: dateKey,
       menuId,
       title,
@@ -226,9 +405,10 @@ async function publishMenuInternal(ctx, options) {
 }
 
 async function publishMenu(ctx) {
-  await requireMerchant(ctx)
+  const identity = await requireMerchant(ctx, { write: true, ownerOnly: true })
   const payload = ctx.payload || {}
   return publishMenuInternal(ctx, {
+    merchantId: merchantIdOf(identity),
     date: payload.date,
     title: payload.title,
     slots: payload.slots,
@@ -238,14 +418,16 @@ async function publishMenu(ctx) {
 
 /** 从历史菜单一键复制（复制菜品集合 + 取餐时段） */
 async function copyMenu(ctx) {
-  await requireMerchant(ctx)
+  const identity = await requireMerchant(ctx, { write: true, ownerOnly: true })
+  const merchantId = merchantIdOf(identity)
   const payload = ctx.payload || {}
   const fromDate = String(payload.fromDate || '')
   if (!/^\d{4}-\d{2}-\d{2}$/.test(fromDate)) fail('DATE_INVALID', '请选择要复制的历史菜单日期')
-  const source = await dbLib.getDocOrNull(ctx.db, COL.MENUS, menuHandler.menuIdOf(fromDate))
+  const source = await dbLib.getDocOrNull(ctx.db, COL.MENUS, menuHandler.menuIdOf(fromDate, merchantId))
   if (!source) fail('MENU_NOT_FOUND', '历史菜单不存在')
 
   return publishMenuInternal(ctx, {
+    merchantId,
     date: payload.date || dates.shanghaiDateKey(),
     title: payload.title || source.title,
     slots: source.slots,
@@ -254,10 +436,11 @@ async function copyMenu(ctx) {
 }
 
 async function menuHistory(ctx) {
-  await requireMerchant(ctx)
+  const identity = await requireMerchant(ctx)
+  const merchantId = merchantIdOf(identity)
   const res = await ctx.db
     .collection(COL.MENUS)
-    .where({ merchantId: config.MERCHANT_ID })
+    .where({ merchantId })
     .orderBy('date', 'desc')
     .limit(30)
     .get()
@@ -275,9 +458,10 @@ async function menuHistory(ctx) {
 }
 
 async function menuDetail(ctx) {
-  await requireMerchant(ctx)
+  const identity = await requireMerchant(ctx)
+  const merchantId = merchantIdOf(identity)
   const dateKey = String((ctx.payload || {}).date || dates.shanghaiDateKey())
-  const menu = await dbLib.getDocOrNull(ctx.db, COL.MENUS, menuHandler.menuIdOf(dateKey))
+  const menu = await dbLib.getDocOrNull(ctx.db, COL.MENUS, menuHandler.menuIdOf(dateKey, merchantId))
   if (!menu) return { published: false, date: dateKey, dateLabel: dates.shanghaiDateLabel(dateKey) }
   return {
     published: menu.published !== false,
@@ -306,10 +490,11 @@ function merchantOrderView(order) {
 }
 
 async function orders(ctx) {
-  await requireMerchant(ctx)
+  const identity = await requireMerchant(ctx)
+  const merchantId = merchantIdOf(identity)
   const payload = ctx.payload || {}
   const dateKey = String(payload.date || dates.shanghaiDateKey())
-  const where = { merchantId: config.MERCHANT_ID, date: dateKey }
+  const where = { merchantId, date: dateKey }
   if (Array.isArray(payload.statuses) && payload.statuses.length) {
     const valid = payload.statuses.filter((s) => state.STATUS_TEXT[s])
     if (valid.length) where.status = ctx._.in(valid)
@@ -325,23 +510,31 @@ async function orders(ctx) {
   }
 }
 
-async function getOrderOrThrow(ctx, orderId) {
+async function getOrderOrThrow(ctx, orderId, merchantId) {
   const id = String(orderId || '')
   if (!id) fail('ORDER_ID_REQUIRED', '缺少订单号')
-  const order = await dbLib.getDocOrNull(ctx.db, COL.ORDERS, id)
+  if (!merchantId) fail('MERCHANT_REQUIRED', '缺少商家信息')
+  // 按 _id + merchantId 查询，杜绝跨租户读取
+  const res = await ctx.db
+    .collection(COL.ORDERS)
+    .where({ _id: id, merchantId })
+    .limit(1)
+    .get()
+  const order = (res.data && res.data[0]) || null
   if (!order) fail('ORDER_NOT_FOUND', '订单不存在')
   return order
 }
 
 /** 商家推进状态：接单 / 出餐 / 完成 / 取消（非法流转直接拒绝） */
 async function transition(ctx) {
-  await requireMerchant(ctx)
+  const identity = await requireMerchant(ctx, { write: true })
+  const merchantId = merchantIdOf(identity)
   const payload = ctx.payload || {}
   const action = String(payload.action || '')
   const allowed = ['accept', 'ready', 'complete', 'cancel']
   if (allowed.indexOf(action) < 0) fail('ACTION_NOT_ALLOWED', '商家端只支持 accept / ready / complete / cancel')
 
-  const order = await getOrderOrThrow(ctx, payload.orderId)
+  const order = await getOrderOrThrow(ctx, payload.orderId, merchantId)
   const target = state.assertAction(order.status, action)
   const now = new Date()
   const patch = {
@@ -361,7 +554,7 @@ async function transition(ctx) {
 
   const res = await ctx.db
     .collection(COL.ORDERS)
-    .where({ _id: order._id, status: order.status })
+    .where({ _id: order._id, status: order.status, merchantId })
     .update({ data: patch })
   if (!res.stats || !res.stats.updated) fail('CONCURRENT_MODIFIED', '订单状态已被更新，请刷新后重试')
 
@@ -369,7 +562,7 @@ async function transition(ctx) {
     await slotLib.releaseSlot(ctx.db, ctx._, order.menuId, order.pickupSlot && order.pickupSlot.id).catch(() => {})
   }
 
-  const fresh = await getOrderOrThrow(ctx, order._id)
+  const fresh = await getOrderOrThrow(ctx, order._id, merchantId)
   return merchantOrderView(fresh)
 }
 
@@ -378,9 +571,10 @@ async function transition(ctx) {
  * 收款记录 _id 固定为 pr_<orderId>，天然防止重复确认。
  */
 async function confirmReceipt(ctx) {
-  await requireMerchant(ctx)
+  const identity = await requireMerchant(ctx, { write: true })
+  const merchantId = merchantIdOf(identity)
   const payload = ctx.payload || {}
-  const order = await getOrderOrThrow(ctx, payload.orderId)
+  const order = await getOrderOrThrow(ctx, payload.orderId, merchantId)
 
   if (order.payChannel && order.payChannel !== paymode.PAY_MODES.TRANSFER) {
     fail('PAY_CHANNEL_MISMATCH', '该订单不是转账收款订单，无需人工确认')
@@ -399,7 +593,7 @@ async function confirmReceipt(ctx) {
         _id: recordId,
         orderId: order._id,
         orderNo: order.orderNo,
-        merchantId: config.MERCHANT_ID,
+        merchantId,
         date: order.date,
         amountCents,
         channel: paymode.PAY_MODES.TRANSFER,
@@ -415,7 +609,7 @@ async function confirmReceipt(ctx) {
 
   const res = await ctx.db
     .collection(COL.ORDERS)
-    .where({ _id: order._id, status: state.STATUS.PENDING_CONFIRM })
+    .where({ _id: order._id, status: state.STATUS.PENDING_CONFIRM, merchantId })
     .update({
       data: {
         status: target,
@@ -432,7 +626,7 @@ async function confirmReceipt(ctx) {
     fail('CONCURRENT_MODIFIED', '订单状态已变化，请刷新后重试')
   }
 
-  const fresh = await getOrderOrThrow(ctx, order._id)
+  const fresh = await getOrderOrThrow(ctx, order._id, merchantId)
   return {
     order: merchantOrderView(fresh),
     record: {
@@ -448,13 +642,14 @@ async function confirmReceipt(ctx) {
 /* ------------------------------ 打包 / 收益 ------------------------------ */
 
 async function packing(ctx) {
-  await requireMerchant(ctx)
+  const identity = await requireMerchant(ctx)
+  const merchantId = merchantIdOf(identity)
   const dateKey = String((ctx.payload || {}).date || dates.shanghaiDateKey())
   const listData = await dbLib.fetchAll(() =>
     ctx.db
       .collection(COL.ORDERS)
       .where({
-        merchantId: config.MERCHANT_ID,
+        merchantId,
         date: dateKey,
         status: ctx._.in(state.UNFINISHED_PAID_STATUSES)
       })
@@ -467,29 +662,35 @@ async function packing(ctx) {
 }
 
 async function setPacked(ctx) {
-  await requireMerchant(ctx)
+  const identity = await requireMerchant(ctx, { write: true })
+  const merchantId = merchantIdOf(identity)
   const payload = ctx.payload || {}
-  const order = await getOrderOrThrow(ctx, payload.orderId)
+  const order = await getOrderOrThrow(ctx, payload.orderId, merchantId)
   if (state.UNFINISHED_PAID_STATUSES.indexOf(order.status) < 0) {
     fail('ORDER_NOT_PACKABLE', '只有已收款且未完成的订单可以标记打包')
   }
   const packed = payload.packed === true
-  await ctx.db.collection(COL.ORDERS).doc(order._id).update({ data: { packed, packedAt: packed ? new Date() : null, updatedAt: new Date() } })
+  const res = await ctx.db
+    .collection(COL.ORDERS)
+    .where({ _id: order._id, merchantId })
+    .update({ data: { packed, packedAt: packed ? new Date() : null, updatedAt: new Date() } })
+  if (!res.stats || !res.stats.updated) fail('CONCURRENT_MODIFIED', '订单状态已被更新，请刷新后重试')
   return { orderId: order._id, packed }
 }
 
 async function stats(ctx) {
-  await requireMerchant(ctx)
+  const identity = await requireMerchant(ctx)
+  const merchantId = merchantIdOf(identity)
   const dateKey = String((ctx.payload || {}).date || dates.shanghaiDateKey())
   const listData = await dbLib.fetchAll(() =>
-    ctx.db.collection(COL.ORDERS).where({ merchantId: config.MERCHANT_ID, date: dateKey })
+    ctx.db.collection(COL.ORDERS).where({ merchantId, date: dateKey })
   )
   const result = statsCore.buildDailyStats(listData, { date: dateKey })
   result.dateLabel = dates.shanghaiDateLabel(dateKey)
 
   const recordRes = await ctx.db
     .collection(COL.PAYMENT_RECORDS)
-    .where({ merchantId: config.MERCHANT_ID, date: dateKey })
+    .where({ merchantId, date: dateKey })
     .orderBy('at', 'desc')
     .limit(50)
     .get()
@@ -507,8 +708,9 @@ async function stats(ctx) {
 /* ------------------------------ 支付配置 ------------------------------ */
 
 async function savePaymentSettings(ctx) {
-  await requireMerchant(ctx)
-  const saved = await settingsLib.savePaymentSettings(ctx.db, ctx.payload || {}, ctx.openid)
+  const identity = await requireMerchant(ctx, { write: true, ownerOnly: true })
+  const merchantId = merchantIdOf(identity)
+  const saved = await settingsLib.savePaymentSettings(ctx.db, ctx.payload || {}, ctx.openid, merchantId)
   const branch = paymode.resolvePayBranch({
     payMode: saved.payMode,
     wxpayEnabled: config.WXPAY.ENABLED,
@@ -524,8 +726,9 @@ async function savePaymentSettings(ctx) {
 }
 
 async function getPaymentSettings(ctx) {
-  await requireMerchant(ctx)
-  const settings = await settingsLib.getPaymentSettings(ctx.db)
+  const identity = await requireMerchant(ctx)
+  const merchantId = merchantIdOf(identity)
+  const settings = await settingsLib.getPaymentSettings(ctx.db, merchantId)
   const branch = paymode.resolvePayBranch({
     payMode: settings.payMode,
     wxpayEnabled: config.WXPAY.ENABLED,
@@ -546,54 +749,45 @@ async function getPaymentSettings(ctx) {
   }
 }
 
-/** 启动身份识别：返回 openid + 是否商家（不做任何写入） */
+/** 启动身份识别：返回 openid + 角色 + 当前商家（不做任何写入） */
 async function whoami(ctx) {
-  const isMerchant = await authLib.isMerchant(ctx.db, ctx.openid)
-  let dynamic = []
-  let adminCollectionReady = true
-  try {
-    dynamic = await authLib.getDynamicOpenids(ctx.db)
-  } catch (err) {
-    adminCollectionReady = false
-    console.error('[api] 读取 merchant_admins 失败', err)
-  }
+  const identity = ctx.identity || await identityLib.resolveIdentity(ctx)
+  // 只返回身份与商家状态；环境 ID、集合名、白名单数量等运维细节不向商家/顾客暴露
   return {
-    openid: ctx.openid || '',
-    isMerchant,
-    envId: ctx.envId || '',
+    openid: identity.openid || '',
+    isMerchant: identity.isMerchant && identity.role !== 'admin',
+    role: identity.role,
+    merchantId: identity.merchantId,
+    merchantName: identity.merchantName,
+    merchantStatus: identity.merchantStatus,
+    merchantIds: identity.merchantIds || [],
     mode: 'cloud',
-    merchantOpenidCount: dynamic.length,
-    adminCollectionReady,
-    canSelfClaim:
-      config.ALLOW_SELF_CLAIM &&
-      !isMerchant &&
-      adminCollectionReady &&
-      dynamic.length === 0 &&
-      config.MERCHANT_OPENIDS.length === 0,
+    canSelfClaim: false,
     autoBootstrap: false
   }
 }
 
-/** 一次性自助成为商家：仅集合为空 + 本人手动确认时生效 */
+/** 一次性自助成为默认商家店主（默认关闭；正式环境请用管理台绑定） */
 async function claimSelf(ctx) {
   const payload = ctx.payload || {}
   if (payload.confirm !== true) fail('CONFIRM_REQUIRED', '请手动确认将当前 openid 设为商家')
-  if (!config.ALLOW_SELF_CLAIM) fail('SELF_CLAIM_DISABLED', '自助成为商家已关闭，请手动配置 merchant_admins')
+  if (!config.ALLOW_SELF_CLAIM) fail('SELF_CLAIM_DISABLED', '自助成为商家已关闭，请让管理员在管理台绑定 openid')
   if (!ctx.openid) fail('NO_OPENID', '未获取到 openid，请在小程序内使用')
-  if (config.MERCHANT_OPENIDS.length > 0) {
-    fail('MERCHANT_EXISTS', '已存在静态商家白名单，不能自助成为商家')
-  }
 
-  let dynamic = []
-  try {
-    dynamic = await authLib.getDynamicOpenids(ctx.db)
-  } catch (err) {
-    fail('ADMIN_COLLECTION_MISSING', 'merchant_admins 集合不存在，请先执行 init 云函数 {"action":"setup"}')
-  }
-  if (dynamic.length > 0) fail('MERCHANT_EXISTS', '已存在商家，请让店主手动添加你的 openid')
-
-  await authLib.addDynamicOpenid(ctx.db, ctx._, ctx.openid)
-  return { isMerchant: true, claimed: true, openid: ctx.openid }
+  const merchantId = config.DEFAULT_MERCHANT_ID
+  const merchant = await identityLib.getMerchantDoc(ctx.db, merchantId)
+  if (merchant && merchant.status === 'disabled') fail('MERCHANT_DISABLED', '商家已停用')
+  await ctx.db.collection(COL.MERCHANT_STAFF).doc(ctx.openid).set({
+    data: {
+      openid: ctx.openid,
+      merchantId,
+      merchantIds: [merchantId],
+      role: 'owner',
+      name: '店主',
+      createdAt: new Date()
+    }
+  })
+  return { isMerchant: true, claimed: true, openid: ctx.openid, merchantId, role: 'owner' }
 }
 
 module.exports = {
@@ -604,6 +798,13 @@ module.exports = {
   saveDish,
   toggleDish,
   deleteDish,
+  listCategories,
+  saveCategory,
+  deleteCategory,
+  staffList,
+  staffBind,
+  staffUnbind,
+  exportOrders,
   publishMenu,
   copyMenu,
   menuHistory,

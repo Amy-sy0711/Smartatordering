@@ -118,6 +118,55 @@
   font-weight: 600;
 }
 
+.cat-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 14rpx 0;
+  border-top: 1rpx solid #f2f4f8;
+}
+
+.cat-name {
+  flex: 1;
+  min-width: 200rpx;
+  background: #f7f8fa;
+  border-radius: 10rpx;
+  padding: 10rpx 16rpx;
+  font-size: 26rpx;
+  margin-right: 12rpx;
+}
+
+.cat-ops {
+  display: flex;
+  align-items: center;
+  margin-top: 10rpx;
+}
+
+.cat-op {
+  font-size: 24rpx;
+  color: #2361d8;
+  padding: 6rpx 14rpx;
+}
+
+.cat-op--danger {
+  color: #c62828;
+}
+
+.cat-add {
+  display: flex;
+  align-items: center;
+  margin-top: 16rpx;
+}
+
+.cat-add-input {
+  flex: 1;
+  background: #f7f8fa;
+  border-radius: 10rpx;
+  padding: 12rpx 16rpx;
+  font-size: 26rpx;
+  margin-right: 12rpx;
+}
+
 .dish-row {
   display: flex;
   justify-content: space-between;

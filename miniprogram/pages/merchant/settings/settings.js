@@ -86,10 +86,6 @@ Page({
     wx.previewImage({ urls: [url], current: url })
   },
 
-  goDiagnose() {
-    wx.navigateTo({ url: '/pages/diagnose/diagnose' })
-  },
-
   save() {
     if (this.data.saving) return
     const transfer = this.data.transfer

@@ -72,10 +72,6 @@ Page({
     wx.setClipboardData({ data: openid })
   },
 
-  goDiagnose() {
-    wx.navigateTo({ url: '/pages/diagnose/diagnose' })
-  },
-
   goHome() {
     wx.reLaunch({ url: '/pages/menu/menu' })
   },

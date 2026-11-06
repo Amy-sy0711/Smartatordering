@@ -26,6 +26,14 @@ const safe = require(path.join(MINI_UTILS, 'safe'))
 const merchantGuard = require(path.join(MINI_UTILS, 'merchant-guard'))
 const menuCache = require(path.join(MINI_UTILS, 'menu-cache'))
 const dataSource = require(path.join(MINI_UTILS, 'data-source'))
+const tenant = require(path.join(CORE, 'tenant'))
+const actionPolicy = require(path.join(CORE, 'action-policy'))
+const identityCore = require(path.join(CORE, 'identity'))
+const categoriesCore = require(path.join(CORE, 'categories'))
+const exportCore = require(path.join(CORE, 'export'))
+const merchantToken = require(path.join(CORE, 'merchant-token'))
+const adminPolicy = require(path.join(ROOT, 'cloudfunctions', 'adminApi', 'core', 'policy'))
+const adminAudit = require(path.join(ROOT, 'cloudfunctions', 'adminApi', 'core', 'audit'))
 
 let passed = 0
 let failed = 0
@@ -752,7 +760,7 @@ function clearEnv() {
   delete global.getApp
 }
 
-test('云端失败弹窗给「重试 / 用本地演示」两个动作，只有点本地演示才切 local', () => {
+test('云端失败弹窗只给「重试/关闭」，绝不自动切到 local', () => {
   const store = {}
   const app = { globalData: { dataMode: 'cloud', cloudEnv: 'ordering-d0gyct6z1ff2afebd' } }
   let modal = null
@@ -771,7 +779,7 @@ test('云端失败弹窗给「重试 / 用本地演示」两个动作，只有�
     })
     assert.ok(modal, '应弹出兜底提示')
     assert.strictEqual(modal.confirmText, '重试')
-    assert.ok(modal.cancelText.indexOf('本地演示') >= 0, '取消按钮应为「用本地演示」')
+    assert.strictEqual(modal.cancelText, '关闭')
     assert.ok(modal.content.indexOf('CALL_FAILED') >= 0, '弹窗应展示错误码')
     assert.strictEqual(dataSource.getMode(), 'cloud')
 
@@ -780,9 +788,38 @@ test('云端失败弹窗给「重试 / 用本地演示」两个动作，只有�
     assert.strictEqual(dataSource.getMode(), 'cloud', '点重试不应切模式')
 
     modal.success({ confirm: false, cancel: true })
-    assert.strictEqual(dataSource.getMode(), 'local', '只有点本地演示才切 local')
-    assert.strictEqual(store[dataSource.MODE_STORAGE_KEY], 'local')
+    assert.strictEqual(dataSource.getMode(), 'cloud', '关闭弹窗绝不能自动切 local')
   } finally {
+    dataSource.switchToCloud({ silent: true })
+    clearEnv()
+  }
+})
+
+test('商家端隐私模式：只显示「系统暂时不可用，请联系管理员」', () => {
+  const store = {}
+  const app = { globalData: { dataMode: 'cloud', cloudEnv: 'ordering-d0gyct6z1ff2afebd' } }
+  let modal = null
+  installEnv(app, {
+    getStorageSync: (key) => store[key],
+    setStorageSync: (key, value) => { store[key] = value },
+    showModal: (opts) => { modal = opts },
+    showToast: () => {}
+  })
+  try {
+    dataSource.setErrorPrivacy(true)
+    dataSource.showError(
+      { code: 'CALL_FAILED', message: 'cloudfunctions/api 未抵达，环境 ordering-d0gyct6z1ff2afebd，集合 orders' },
+      '订单加载失败'
+    )
+    assert.ok(modal, '应弹窗')
+    assert.strictEqual(modal.title, '系统暂时不可用')
+    assert.strictEqual(modal.content, '系统暂时不可用，请联系管理员。')
+    assert.strictEqual(modal.confirmText, '重试')
+    assert.ok(modal.content.indexOf('CALL_FAILED') < 0, '不得出现错误码')
+    assert.ok(modal.content.indexOf('ordering-') < 0, '不得出现环境 ID')
+    assert.ok(modal.content.indexOf('orders') < 0, '不得出现集合名')
+  } finally {
+    dataSource.setErrorPrivacy(false)
     dataSource.switchToCloud({ silent: true })
     clearEnv()
   }
@@ -842,6 +879,150 @@ testAsync('角色守卫拒绝顾客直达商家页，并跳回菜单', async () 
   } finally {
     clearEnv()
   }
+})
+
+/* --------------------------- 多租户与三层后台 --------------------------- */
+console.log('\n[多租户：文档 ID 隔离]')
+
+test('默认商家沿用旧 ID，其他商家加前缀，杜绝跨租户覆盖', () => {
+  assert.strictEqual(tenant.menuIdOf('2026-11-06', 'merchant_001'), 'm_20261106')
+  assert.strictEqual(tenant.menuIdOf('2026-11-06', 'merchant_abc'), 'm_merchant_abc_20261106')
+  assert.strictEqual(tenant.counterIdOf('2026-11-06', 'merchant_001'), 'seq_20261106')
+  assert.strictEqual(tenant.counterIdOf('2026-11-06', 'merchant_abc'), 'seq_merchant_abc_20261106')
+  assert.strictEqual(tenant.paymentDocId('merchant_001'), 'payment')
+  assert.strictEqual(tenant.paymentDocId('merchant_abc'), 'payment_merchant_abc')
+  assert.strictEqual(tenant.normalizeMerchantId(' bad id '), '')
+})
+
+test('tenant 规则与 config 默认商家一致', () => {
+  const config = require(path.join(ROOT, 'cloudfunctions', 'api', 'config'))
+  assert.strictEqual(tenant.DEFAULT_MERCHANT_ID, config.DEFAULT_MERCHANT_ID)
+})
+
+console.log('\n[四类角色：action 白名单]')
+
+test('顾客不能调用商家写接口；staff 不能发布菜单；owner 可以', () => {
+  assert.strictEqual(actionPolicy.canInvoke('customer', 'merchant.saveDish'), false)
+  assert.strictEqual(actionPolicy.canInvoke('customer', 'menu.today'), true)
+  assert.strictEqual(actionPolicy.canInvoke('staff', 'merchant.orders'), true)
+  assert.strictEqual(actionPolicy.canInvoke('staff', 'merchant.publishMenu'), false)
+  assert.strictEqual(actionPolicy.canInvoke('owner', 'merchant.publishMenu'), true)
+  assert.strictEqual(actionPolicy.canInvoke('owner', 'health'), false)
+  assert.strictEqual(actionPolicy.canInvoke('admin', 'health'), true)
+  assert.strictEqual(actionPolicy.canInvoke('admin', 'merchant.orders'), false, '平台管理员不能读订单')
+  const denied = actionPolicy.decideInvoke('customer', 'merchant.exportOrders')
+  assert.strictEqual(denied.allowed, false)
+  assert.strictEqual(denied.code, 'FORBIDDEN')
+})
+
+test('身份判定：admin / owner / staff / customer 四种角色', () => {
+  const staffDoc = { merchantId: 'merchant_b', role: 'staff', merchantIds: ['merchant_b'] }
+  assert.strictEqual(identityCore.classifyIdentity({ openid: 'o1', staffDoc }).role, 'staff')
+  assert.strictEqual(identityCore.classifyIdentity({ openid: 'o1', staffDoc }).merchantId, 'merchant_b')
+  assert.strictEqual(identityCore.classifyIdentity({ openid: 'o1', staffDoc: { merchantId: 'merchant_b', role: 'owner' } }).role, 'owner')
+  assert.strictEqual(identityCore.classifyIdentity({ openid: 'o1', isAdmin: true, defaultMerchantId: 'merchant_001' }).role, 'admin')
+  const customer = identityCore.classifyIdentity({ openid: 'o2', requestedMerchantId: 'merchant_b', defaultMerchantId: 'merchant_001' })
+  assert.strictEqual(customer.role, 'customer')
+  assert.strictEqual(customer.merchantId, 'merchant_b')
+})
+
+test('商家停用禁止下单；跨租户订单不可访问', () => {
+  const disabled = identityCore.canCreateOrder({ merchantId: 'merchant_b', merchantStatus: 'disabled' })
+  assert.strictEqual(disabled.allowed, false)
+  assert.strictEqual(disabled.code, 'MERCHANT_DISABLED')
+  const active = identityCore.canCreateOrder({ merchantId: 'merchant_b', merchantStatus: 'active' })
+  assert.strictEqual(active.allowed, true)
+
+  const identityA = { openid: 'ownerA', role: 'owner', merchantId: 'merchant_a' }
+  assert.strictEqual(identityCore.canAccessOrder(identityA, { merchantId: 'merchant_a', buyerOpenid: 'x' }), true)
+  assert.strictEqual(identityCore.canAccessOrder(identityA, { merchantId: 'merchant_b', buyerOpenid: 'x' }), false, '不能读别家订单')
+  assert.strictEqual(identityCore.canAccessOrder({ openid: 'buyer', role: 'customer', merchantId: 'merchant_a' }, { merchantId: 'merchant_b', buyerOpenid: 'buyer' }), true, '买家可看自己的订单')
+
+  const denied = identityCore.decideMerchantAccess({ role: 'customer' }, { write: true })
+  assert.strictEqual(denied.code, 'NO_MERCHANT_ACCESS')
+  const ownerOnly = identityCore.decideMerchantAccess({ role: 'staff', merchantId: 'merchant_a' }, { ownerOnly: true })
+  assert.strictEqual(ownerOnly.code, 'ROLE_FORBIDDEN')
+})
+
+console.log('\n[分类：排序 / 禁用 / 空分类]')
+
+test('分类按 sort 排序，禁用分类不展示，空分类不出标题', () => {
+  const docs = [
+    { name: '饮品', sort: 3, enabled: true },
+    { name: '盖饭', sort: 1, enabled: true },
+    { name: '停用类', sort: 2, enabled: false }
+  ]
+  const dishes = [
+    { name: '可乐', category: '饮品', sortOrder: 2 },
+    { name: '雪碧', category: '饮品', sortOrder: 1 },
+    { name: '牛肉饭', category: '盖饭', sortOrder: 0 },
+    { name: '隐藏菜', category: '停用类', sortOrder: 0 },
+    { name: '历史菜', category: '旧分类', sortOrder: 0 },
+    { name: '无类菜', sortOrder: 0 }
+  ]
+  const result = categoriesCore.buildVisibleCategories(dishes, docs)
+  assert.deepStrictEqual(result.categories.map((c) => c.name), ['盖饭', '饮品', '旧分类', '其他'])
+  assert.strictEqual(result.categories[1].dishes[0].name, '雪碧', '组内按 sortOrder 排序')
+  assert.strictEqual(result.dishCount, 5, '禁用分类的菜品不计数')
+  assert.ok(result.categories.filter((c) => c.dishes.length === 0).length === 0, '空分类不输出')
+})
+
+console.log('\n[商家 token：过期 / 伪造]')
+
+process.env.MERCHANT_TOKEN_SECRET = 'unit-test-secret-0123456789'
+
+test('合法 token 可校验；过期与伪造 token 被拒绝', () => {
+  const good = merchantToken.signMerchantToken({ merchantId: 'merchant_b', role: 'owner' })
+  const verified = merchantToken.verifyMerchantToken(good)
+  assert.strictEqual(verified.ok, true)
+  assert.strictEqual(verified.payload.merchantId, 'merchant_b')
+
+  const expired = merchantToken.signMerchantToken({ merchantId: 'merchant_b', exp: Date.now() - 1000 })
+  assert.strictEqual(merchantToken.verifyMerchantToken(expired).code, 'TOKEN_EXPIRED')
+
+  const parts = good.split('.')
+  const forged = parts[0] + '.' + parts[1].replace(/^./, (c) => (c === 'a' ? 'b' : 'a'))
+  assert.strictEqual(merchantToken.verifyMerchantToken(forged).code, 'TOKEN_FORGED')
+  assert.strictEqual(merchantToken.verifyMerchantToken('bad-token').code, 'TOKEN_INVALID')
+})
+
+console.log('\n[平台运营后台：禁止业务明细]')
+
+test('平台 action 白名单不含任何业务明细接口', () => {
+  const names = adminPolicy.PLATFORM_ADMIN_ACTIONS
+  assert.ok(names.indexOf('merchant.list') >= 0)
+  assert.ok(names.indexOf('staff.bind') >= 0)
+  assert.ok(names.indexOf('repair.seedDefaults') >= 0)
+  for (const forbidden of adminPolicy.FORBIDDEN_BUSINESS_ACTIONS) {
+    assert.strictEqual(names.indexOf(forbidden), -1, '白名单不得包含业务接口 ' + forbidden)
+  }
+  assert.strictEqual(adminPolicy.isForbiddenBusinessAction('merchant.orders'), true)
+})
+
+test('审计记录字段固定，不写入业务内容', () => {
+  const record = adminAudit.buildAuditRecord(
+    { adminId: 'a1', username: 'ops' },
+    'merchant.setStatus',
+    { merchantId: 'merchant_b', status: 'disabled', remark: '顾客手机号 13800000000' },
+    { ok: true }
+  )
+  const keys = Object.keys(record)
+  assert.deepStrictEqual(keys, ['actorType', 'actorId', 'actorName', 'action', 'merchantId', 'result', 'code', 'source', 'at'])
+  assert.strictEqual(record.actorType, 'platform_admin')
+  assert.strictEqual(record.merchantId, 'merchant_b')
+  assert.ok(JSON.stringify(record).indexOf('13800000000') < 0, '审计日志不得包含业务字段值')
+})
+
+test('商家导出只包含本租户订单', () => {
+  const orders = [
+    { merchantId: 'merchant_a', orderNo: 'A1', status: 'paid', date: '2026-11-06', items: [{ name: '牛肉饭', qty: 1, specText: '' }], totalCents: 2000, totalQty: 1 },
+    { merchantId: 'merchant_b', orderNo: 'B1', status: 'paid', date: '2026-11-06', items: [{ name: '可乐', qty: 2, specText: '' }], totalCents: 1000, totalQty: 2 }
+  ]
+  const result = exportCore.buildOrdersCsv(orders, 'merchant_a')
+  assert.strictEqual(result.count, 1)
+  assert.ok(result.csv.indexOf('A1') >= 0)
+  assert.ok(result.csv.indexOf('B1') < 0, '不得导出别家订单')
+  assert.ok(result.csv.indexOf('牛肉饭') >= 0)
 })
 
 /* ------------------------------ 汇总 ------------------------------ */

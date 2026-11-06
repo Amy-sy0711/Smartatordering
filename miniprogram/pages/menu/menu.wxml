@@ -1,8 +1,7 @@
 <view class="page menu-page">
   <view class="local-banner" wx:if="{{isLocal}}">
     <view class="local-banner-title">本地演示模式</view>
-    <view class="local-banner-desc">数据不会同步到云端，其他人看不到。点右侧可切回云端。</view>
-    <text class="local-banner-link" bindtap="useCloudMode">切回云端</text>
+    <view class="local-banner-desc">数据不会同步到云端，其他人看不到。切换模式请修改开发配置。</view>
   </view>
 
   <view class="preview-banner" wx:if="{{fromMerchant}}">
@@ -10,9 +9,9 @@
     <text class="preview-link" bindtap="backToBoard">返回看板 →</text>
   </view>
 
-  <view class="identity-banner" wx:if="{{identityError}}" bindtap="goDiagnose">
+  <view class="identity-banner" wx:if="{{identityError}}">
     <view class="identity-title">身份校验失败</view>
-    <view class="identity-desc">{{identityError.code}}：{{identityError.message}} · 点此自检 →</view>
+    <view class="identity-desc">{{identityError.message || '请稍后重试，持续失败请联系管理员'}}</view>
   </view>
 
   <view class="hero" wx:if="{{published}}">
@@ -24,7 +23,7 @@
     <view class="hero-slots">
       <view class="slot-chip {{slot.full ? 'slot-chip--full' : ''}}" wx:for="{{slots}}" wx:key="id">
         {{slot.label}}
-        <text class="slot-left">{{slot.full ? '已满' : '剩' + slot.left}}</text>
+        <text class="slot-left">{{slot.leftText}}</text>
       </view>
     </view>
   </view>
@@ -37,24 +36,19 @@
   <view class="loading" wx:if="{{loadState === 'loading'}}">菜单加载中…</view>
 
   <view class="state-card state-card--fail" wx:elif="{{loadState === 'load_failed'}}">
-    <view class="state-title">云端未连通</view>
+    <view class="state-title">{{fromMerchant ? '系统暂时不可用' : '云端未连通'}}</view>
     <view class="state-desc">{{errorHint}}</view>
-    <view class="state-row">
+    <view class="state-row" wx:if="{{errorCode}}">
       <text class="state-label">错误码</text>
       <text class="state-value" selectable>{{errorCode}}</text>
     </view>
-    <view class="state-row">
+    <view class="state-row" wx:if="{{errorMsg}}">
       <text class="state-label">错误信息</text>
       <text class="state-value" selectable>{{errorMsg}}</text>
     </view>
     <view class="state-actions">
       <button class="btn btn--ghost state-btn" bindtap="retry">重试</button>
-      <button class="btn state-btn" bindtap="goDiagnose">打开自检</button>
-    </view>
-    <view class="state-actions">
-      <button class="btn btn--ghost state-btn" wx:if="{{!isLocal}}" bindtap="useLocalDemo">先用本地演示</button>
-      <button class="btn btn--ghost state-btn" wx:else bindtap="useCloudMode">切回云端模式</button>
-      <button class="btn btn--ghost state-btn" bindtap="copyError">复制错误</button>
+      <button class="btn btn--ghost state-btn" wx:if="{{errorCode}}" bindtap="copyError">复制错误</button>
     </view>
   </view>
 
@@ -63,9 +57,7 @@
     <view class="empty-sub">发布后下拉刷新即可点餐</view>
     <view class="state-actions">
       <button class="btn btn--ghost empty-btn" bindtap="retry">刷新试试</button>
-      <button class="btn empty-btn" bindtap="goDiagnose">打开自检</button>
     </view>
-    <view class="empty-link" bindtap="goDiagnose">商家还没发布？先自检云端与今日菜单 →</view>
   </view>
 
   <block wx:if="{{loadState === 'ready'}}">
@@ -95,7 +87,6 @@
   <!-- 顾客端不提供任何进入商家端的入口；商家身份由启动 whoami 自动识别 -->
   <view class="footer-links">
     <text class="footer-link" bindtap="goOrders">我的订单</text>
-    <text class="footer-link" bindtap="goDiagnose">自检</text>
   </view>
   <view class="mode-note">
     <text>当前：{{modeLabel || '云端模式'}}</text>

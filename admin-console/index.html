@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>平台运营后台 · 点餐 SaaS</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-dot"></span>
+      <span>平台运营后台</span>
+      <small>只做租户与系统维护，不读取商家业务明细</small>
+    </div>
+    <div class="env-line">
+      <label for="env-id">环境 ID</label>
+      <input id="env-id" class="env-input" placeholder="ordering-d0gyct6z1ff2afebd" />
+      <span id="conn-status" class="conn-status">未连接</span>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section id="login-panel" class="card login-card">
+      <h2>管理员登录</h2>
+      <p class="muted">账号来自云函数环境变量 <code>ADMIN_BOOTSTRAP_PASSWORD</code> 首次创建，或已有管理员。</p>
+      <form id="login-form" class="form-grid">
+        <label>用户名<input id="login-username" autocomplete="username" required /></label>
+        <label>密码<input id="login-password" type="password" autocomplete="current-password" required /></label>
+        <button class="btn primary" type="submit">登录</button>
+      </form>
+      <p id="login-error" class="error-text"></p>
+    </section>
+
+    <section id="app-panel" class="hidden">
+      <div class="toolbar">
+        <div class="toolbar-left">
+          <span id="admin-name" class="muted"></span>
+        </div>
+        <div class="toolbar-right">
+          <button class="btn small" id="btn-refresh-all">刷新</button>
+          <button class="btn small danger" id="btn-logout">退出登录</button>
+        </div>
+      </div>
+
+      <nav class="tabs" id="tabs">
+        <button data-tab="merchants" class="tab active">商家</button>
+        <button data-tab="health" class="tab">系统健康</button>
+        <button data-tab="repair" class="tab">修复工具</button>
+        <button data-tab="audit" class="tab">审计日志</button>
+      </nav>
+
+      <section id="tab-merchants" class="tab-panel">
+        <div class="panel-head">
+          <h2>商家（租户）</h2>
+          <div class="row">
+            <input id="merchant-search" placeholder="搜索商家 ID / 名称" />
+            <select id="merchant-status-filter">
+              <option value="">全部状态</option>
+              <option value="active">启用</option>
+              <option value="disabled">停用</option>
+            </select>
+            <button class="btn small" id="btn-search">搜索</button>
+            <button class="btn primary small" id="btn-create-merchant">＋ 新建商家</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>商家 ID</th>
+                <th>名称</th>
+                <th>状态</th>
+                <th>员工</th>
+                <th>今日订单数</th>
+                <th>套餐 / 有效期</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="merchant-tbody">
+              <tr><td colspan="7" class="muted">登录后加载…</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="muted note">平台侧只展示计数（今日订单数、员工数）；订单内容、菜品、顾客信息、营收明细不对平台开放。</p>
+      </section>
+
+      <section id="tab-health" class="tab-panel hidden">
+        <div class="panel-head">
+          <h2>系统健康</h2>
+          <div class="row">
+            <input id="health-merchant-id" placeholder="商家 ID（默认 merchant_001）" />
+            <button class="btn small" id="btn-health">刷新体检</button>
+          </div>
+        </div>
+        <div id="health-content" class="health-grid">
+          <p class="muted">点击「刷新体检」加载云函数连通性、集合计数、默认商家状态、支付模式、今日菜单发布状态与最近错误码分布。</p>
+        </div>
+      </section>
+
+      <section id="tab-repair" class="tab-panel hidden">
+        <div class="panel-head">
+          <h2>修复工具（按 ID 的盲操作）</h2>
+          <p class="muted">所有修复动作只返回成功/失败或处理条数，不返回任何业务内容。</p>
+        </div>
+        <div class="repair-grid">
+          <div class="card">
+            <label>目标商家 ID<input id="repair-merchant-id" placeholder="merchant_001" /></label>
+            <div class="row wrap">
+              <button class="btn small" data-repair="repair.seedDefaults">补写默认商家/配置</button>
+              <button class="btn small" data-repair="repair.rebuildIndexes">检查集合/索引</button>
+              <button class="btn small" data-repair="repair.cleanOrphans">清理孤儿员工绑定</button>
+              <button class="btn small" data-repair="repair.resetStaff">重置员工绑定</button>
+              <button class="btn small" data-repair="repair.revokeTokens">吊销商家登录令牌</button>
+              <button class="btn small" data-repair="repair.refreshMenuCache">强制刷新菜单缓存</button>
+            </div>
+          </div>
+          <div class="card">
+            <label>订单 ID（仅用于重发支付回调，不返回订单内容）<input id="repair-order-id" placeholder="order_xxx" /></label>
+            <button class="btn small" data-repair="repair.resendPaymentCallback">重发支付回调</button>
+          </div>
+          <div class="card">
+            <label>修改管理员密码</label>
+            <input id="pw-current" type="password" placeholder="当前密码" />
+            <input id="pw-next" type="password" placeholder="新密码（至少 8 位）" />
+            <button class="btn small" id="btn-change-password">修改密码</button>
+          </div>
+        </div>
+        <pre id="repair-result" class="result-box">等待操作…</pre>
+      </section>
+
+      <section id="tab-audit" class="tab-panel hidden">
+        <div class="panel-head">
+          <h2>审计日志</h2>
+          <div class="row">
+            <input id="audit-limit" placeholder="条数（默认 50）" />
+            <button class="btn small" id="btn-audit">刷新</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr><th>时间</th><th>操作者</th><th>动作</th><th>商家</th><th>结果</th><th>来源</th></tr>
+            </thead>
+            <tbody id="audit-tbody">
+              <tr><td colspan="6" class="muted">登录后加载…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <div id="modal" class="modal hidden">
+    <div class="modal-box">
+      <div class="modal-head">
+        <h3 id="modal-title">标题</h3>
+        <button class="btn small" id="modal-close">关闭</button>
+      </div>
+      <div id="modal-body" class="modal-body"></div>
+      <div id="modal-foot" class="modal-foot"></div>
+    </div>
+  </div>
+
+  <script src="https://static.cloudbase.net/cloudbase-js-sdk/2.17.5/cloudbase.full.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

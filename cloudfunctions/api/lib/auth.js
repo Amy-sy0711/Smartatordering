@@ -8,7 +8,7 @@ const { getDocOrNull } = require('./db')
 const ADMIN_DOC_ID = 'merchant_admins'
 
 async function getDynamicOpenids(db) {
-  const doc = await getDocOrNull(db, COL.ADMINS, ADMIN_DOC_ID)
+  const doc = await getDocOrNull(db, COL.ADMINS_LEGACY, ADMIN_DOC_ID)
   return doc && Array.isArray(doc.openids) ? doc.openids.map(String) : []
 }
 
@@ -25,19 +25,19 @@ function bootstrapAllowed() {
 }
 
 async function addDynamicOpenid(db, _, openid) {
-  const doc = await getDocOrNull(db, COL.ADMINS, ADMIN_DOC_ID)
+  const doc = await getDocOrNull(db, COL.ADMINS_LEGACY, ADMIN_DOC_ID)
   if (doc) {
     if ((doc.openids || []).indexOf(openid) >= 0) return
-    await db.collection(COL.ADMINS).doc(ADMIN_DOC_ID).update({ data: { openids: _.addToSet(openid), updatedAt: new Date() } })
+    await db.collection(COL.ADMINS_LEGACY).doc(ADMIN_DOC_ID).update({ data: { openids: _.addToSet(openid), updatedAt: new Date() } })
     return
   }
   try {
-    await db.collection(COL.ADMINS).doc(ADMIN_DOC_ID).set({
+    await db.collection(COL.ADMINS_LEGACY).doc(ADMIN_DOC_ID).set({
       data: { openids: [openid], createdAt: new Date(), updatedAt: new Date() }
     })
   } catch (err) {
     // 并发下已被别的请求创建，退化为数组追加
-    await db.collection(COL.ADMINS).doc(ADMIN_DOC_ID).update({ data: { openids: _.addToSet(openid), updatedAt: new Date() } })
+    await db.collection(COL.ADMINS_LEGACY).doc(ADMIN_DOC_ID).update({ data: { openids: _.addToSet(openid), updatedAt: new Date() } })
   }
 }
 

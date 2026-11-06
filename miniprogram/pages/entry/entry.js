@@ -1,12 +1,14 @@
 const api = require('../../utils/data-source')
 const roleRouter = require('../../utils/role-router')
+const merchantContext = require('../../utils/merchant-context')
 
 Page({
   data: {
     status: '正在识别身份…'
   },
 
-  onLoad() {
+  onLoad(options) {
+    merchantContext.capture(options)
     this.route()
   },
 

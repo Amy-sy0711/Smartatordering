@@ -61,12 +61,6 @@
       <view class="warn-box" wx:if="{{!jsapiConfigured}}">当前未配置商户号，顾客点击支付会收到明确的「支付未配置」提示，不会白屏</view>
     </view>
 
-    <view class="card">
-      <view class="section-title">身份与环境</view>
-      <view class="muted">查看我的 openid、是否商家、云函数连通性与数据库集合文档数</view>
-      <view class="btn btn--ghost btn--block diag-btn" bindtap="goDiagnose">打开环境自检</view>
-    </view>
-
     <view class="btn btn--primary btn--block save-btn {{saving ? 'btn--disabled' : ''}}" bindtap="save">
       {{saving ? '保存中…' : '保存收款设置'}}
     </view>

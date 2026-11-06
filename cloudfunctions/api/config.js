@@ -6,8 +6,11 @@
  * ============================================================
  */
 
-// 单商户固定 ID。订单、菜品都带 merchantId 字段，后续多店时按店铺过滤即可。
-const MERCHANT_ID = 'merchant_001'
+// 默认商家 ID：无 mid 入口时使用，也用于旧数据迁移。
+// 多租户后每个商家在 merchants 集合中一条文档，_id = merchantId。
+const DEFAULT_MERCHANT_ID = 'merchant_001'
+// 兼容旧代码里的单商户常量（等价于默认商家）
+const MERCHANT_ID = DEFAULT_MERCHANT_ID
 
 // 商家 openid 白名单（静态配置，优先级最高）。
 // 获取自己的 openid：小程序里「商家入口」页会显示，或部署 cloudfunctions/init 后调用 whoami。
@@ -20,9 +23,9 @@ const MERCHANT_OPENIDS = [
 // 避免任何人首次打开小程序就被自动识别为商家。
 const ALLOW_AUTO_BOOTSTRAP = false
 
-// 一次性自助成为商家：仅当 merchant_admins 集合为空、且本人在自检页手动点击时生效。
-// 正式上线请改为 false（或配置好商家后关闭）。
-const ALLOW_SELF_CLAIM = true
+// 一次性自助成为商家：SaaS 模式下必须关闭（否则任何顾客都能把自己变成店主）。
+// 商家员工一律由平台管理台/商家网页后台绑定 openid。
+const ALLOW_SELF_CLAIM = false
 
 // 下单规则
 const MAX_QTY_PER_ITEM = 20   // 同一菜品（同规格）单行最大数量
@@ -58,6 +61,7 @@ const WXPAY = {
 }
 
 module.exports = {
+  DEFAULT_MERCHANT_ID,
   MERCHANT_ID,
   MERCHANT_OPENIDS,
   ALLOW_AUTO_BOOTSTRAP,

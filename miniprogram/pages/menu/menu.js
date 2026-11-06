@@ -2,6 +2,7 @@ const api = require('../../utils/data-source')
 const cartUtil = require('../../utils/cart')
 const payment = require('../../utils/payment')
 const safe = require('../../utils/safe')
+const merchantContext = require('../../utils/merchant-context')
 
 Page({
   data: {
@@ -33,7 +34,11 @@ Page({
 
   onLoad(options) {
     this.dishMap = {}
-    this.setData({ fromMerchant: options && options.from === 'merchant' })
+    const fromMerchant = !!(options && options.from === 'merchant')
+    // 商家预览顾客端时同样脱敏；真实顾客才显示完整排障信息
+    api.setErrorPrivacy(fromMerchant)
+    merchantContext.capture(options)
+    this.setData({ fromMerchant: fromMerchant })
     const app = getApp()
     const globalData = (app && app.globalData) || {}
     this.setData({
@@ -91,7 +96,9 @@ Page({
             label: safe.safeText(src.label, '取餐时段'),
             limit,
             left,
-            full: !!src.full
+            full: !!src.full,
+            // 模板只读兜底后的文案，避免 WXML 里拼接可能为 undefined 的字段
+            leftText: src.full ? '已满' : '剩' + left
           }
         })
         this.dishMap = dishMap
@@ -122,15 +129,17 @@ Page({
         // 云端/本地调用失败：不静默吞掉，页面展示可复制的错误信息
         console.error('[menu] 菜单加载失败', err)
         const info = api.describeError(err)
+        // 商家预览视角不展示错误码/环境细节，只给可行动提示
+        const merchantPreview = this.data.fromMerchant
         this.setData({
           loading: false,
           loadState: 'load_failed',
           published: false,
           isMerchant: false,
           canBootstrap: false,
-          errorCode: info.code,
-          errorMsg: info.message,
-          errorHint: info.hint,
+          errorCode: merchantPreview ? '' : info.code,
+          errorMsg: merchantPreview ? '系统暂时不可用' : info.message,
+          errorHint: merchantPreview ? '系统暂时不可用，请联系管理员。' : info.hint,
           modeLabel: info.modeLabel,
           isLocal: info.mode === api.MODE_LOCAL
         })
@@ -157,18 +166,6 @@ Page({
       '数据模式：' + (this.data.modeLabel || '')
     ].join('\n')
     wx.setClipboardData({ data: text })
-  },
-
-  goDiagnose() {
-    wx.navigateTo({ url: '/pages/diagnose/diagnose' })
-  },
-
-  useLocalDemo() {
-    api.switchToLocal()
-  },
-
-  useCloudMode() {
-    api.switchToCloud()
   },
 
   onDishTap(e) {
@@ -227,12 +224,13 @@ Page({
 
   onShareAppMessage() {
     const firstDish = (this.data.categories[0] && this.data.categories[0].dishes[0]) || null
+    const menuTitle = safe.safeText(this.data.menu && this.data.menu.title, '今日菜单')
     const title = this.data.published
-      ? `${this.data.menu.title}｜${this.data.dateLabel} 在线点餐`
+      ? `${menuTitle}｜${this.data.dateLabel} 在线点餐`
       : '今日菜单 · 在线点餐'
     return {
       title,
-      path: '/pages/menu/menu',
+      path: merchantContext.appendMid('/pages/menu/menu'),
       imageUrl: firstDish && firstDish.imageUrl ? firstDish.imageUrl : ''
     }
   }

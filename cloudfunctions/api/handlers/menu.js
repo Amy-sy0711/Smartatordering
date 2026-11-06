@@ -9,9 +9,12 @@ const paymode = require('../core/paymode')
 const dbLib = require('../lib/db')
 const slotLib = require('../lib/slots')
 const settingsLib = require('../lib/settings')
+const tenant = require('../core/tenant')
+const categoriesCore = require('../core/categories')
 
-function menuIdOf(dateKey) {
-  return 'm_' + String(dateKey).replace(/-/g, '')
+/** 菜单文档 ID：默认商家沿用旧 ID（m_YYYYMMDD），其他商家加前缀，避免跨租户覆盖 */
+function menuIdOf(dateKey, merchantId) {
+  return tenant.menuIdOf(dateKey, merchantId)
 }
 
 /** 菜品对前端的展示结构（不含成本等内部字段） */
@@ -40,9 +43,9 @@ function dishView(dish) {
   }
 }
 
-/** 支付配置（下发给前端渲染结算按钮与转账信息） */
-async function paymentInfo(db) {
-  const settings = await settingsLib.getPaymentSettings(db)
+/** 支付配置（下发给前端渲染结算按钮与转账信息），按商家隔离 */
+async function paymentInfo(db, merchantId) {
+  const settings = await settingsLib.getPaymentSettings(db, merchantId)
   const branch = paymode.resolvePayBranch({
     payMode: settings.payMode,
     wxpayEnabled: config.WXPAY.ENABLED,
@@ -61,18 +64,22 @@ async function paymentInfo(db) {
 
 /** 顾客端首页：今日菜单（按分类分组）+ 取餐时段余量 + 支付配置 */
 async function today(ctx) {
+  const identity = ctx.identity || { merchantId: config.DEFAULT_MERCHANT_ID, merchantName: config.SHOP.name }
+  const merchantId = identity.merchantId
   const dateKey = dates.shanghaiDateKey()
-  const menuId = menuIdOf(dateKey)
+  const menuId = menuIdOf(dateKey, merchantId)
   const menu = await dbLib.getDocOrNull(ctx.db, COL.MENUS, menuId)
-  const payment = await paymentInfo(ctx.db)
+  const payment = await paymentInfo(ctx.db, merchantId)
 
   const base = {
     published: false,
     date: dateKey,
     dateLabel: dates.shanghaiDateLabel(dateKey),
     menuId,
-    title: config.SHOP.name,
-    shop: config.SHOP,
+    merchantId,
+    merchantName: identity.merchantName || config.SHOP.name,
+    title: identity.merchantName || config.SHOP.name,
+    shop: Object.assign({}, config.SHOP, { name: identity.merchantName || config.SHOP.name }),
     payment,
     slots: [],
     categories: [],
@@ -85,27 +92,22 @@ async function today(ctx) {
   let dishes = []
   if (dishIds.length) {
     dishes = await dbLib.fetchAll(() =>
-      ctx.db.collection(COL.DISHES).where({ merchantId: config.MERCHANT_ID, _id: ctx._.in(dishIds) })
+      ctx.db.collection(COL.DISHES).where({ merchantId, _id: ctx._.in(dishIds) })
     )
     dishes = dishes.filter((dish) => dish.onSale !== false)
   }
 
-  dishes.sort((a, b) => {
-    const ao = Number.isInteger(a.sortOrder) ? a.sortOrder : 0
-    const bo = Number.isInteger(b.sortOrder) ? b.sortOrder : 0
-    return (ao - bo) || String(a.name).localeCompare(String(b.name))
-  })
-
-  const categories = []
-  const catIndex = {}
-  for (const dish of dishes) {
-    const name = dish.category || '其他'
-    if (!catIndex[name]) {
-      catIndex[name] = { name, dishes: [] }
-      categories.push(catIndex[name])
-    }
-    catIndex[name].dishes.push(dishView(dish))
+  // 分类配置：sort 升序，禁用分类不展示；没有分类文档时回落到菜品自带 category
+  let categoryDocs = []
+  try {
+    categoryDocs = await dbLib.fetchAll(() =>
+      ctx.db.collection(COL.CATEGORIES).where({ merchantId })
+    )
+  } catch (err) {
+    categoryDocs = []
   }
+  const grouped = categoriesCore.buildVisibleCategories(dishes, categoryDocs, dishView)
+  const visibleCategories = grouped.categories
 
   // readSlots 兼容旧数据（字符串时段 / 缺 id / 缺 limit），避免前端出现「剩undefined」
   const readSlots = slotsCore.readSlots(menu.slots)
@@ -115,10 +117,10 @@ async function today(ctx) {
 
   return Object.assign({}, base, {
     published: true,
-    title: menu.title || config.SHOP.name,
+    title: menu.title || identity.merchantName || config.SHOP.name,
     slots,
-    categories,
-    totalDishes: dishes.length,
+    categories: visibleCategories,
+    totalDishes: grouped.dishCount,
     menuVersion: menu.menuVersion || null,
     updatedAt: menu.updatedAt || null
   })
@@ -126,7 +128,8 @@ async function today(ctx) {
 
 /** 商家端/前端都可用的支付配置读取 */
 async function payment(ctx) {
-  return paymentInfo(ctx.db)
+  const merchantId = (ctx.identity && ctx.identity.merchantId) || config.DEFAULT_MERCHANT_ID
+  return paymentInfo(ctx.db, merchantId)
 }
 
 module.exports = { menuIdOf, dishView, paymentInfo, today, payment }

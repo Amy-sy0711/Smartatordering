@@ -54,7 +54,7 @@ exports.main = async (event) => {
   const now = new Date()
   const res = await db
     .collection(ORDERS)
-    .where({ _id: outTradeNo, status: 'pending_pay' })
+    .where({ _id: outTradeNo, status: 'pending_pay', merchantId: order.merchantId })
     .update({
       data: {
         status: 'paid',

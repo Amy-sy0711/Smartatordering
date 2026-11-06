@@ -1,0 +1,9 @@
+{
+  "name": "adminAuth",
+  "version": "1.0.0",
+  "description": "平台管理员登录与 token 校验",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3"
+  }
+}

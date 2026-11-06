@@ -24,6 +24,10 @@
           bindtap="pickCategory"
         >{{item}}</text>
       </view>
+      <view class="cat-inline">
+        <input class="cat-inline-input" value="{{newCategoryName}}" maxlength="12" bindinput="onNewCategoryInput" placeholder="新建分类，如 小吃" />
+        <view class="btn btn--ghost btn--small {{categorySaving ? 'btn--disabled' : ''}}" bindtap="addCategoryInline">＋ 新建并选中</view>
+      </view>
 
       <view class="field">
         <text class="field-label">价格（元）</text>

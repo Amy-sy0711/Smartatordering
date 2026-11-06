@@ -1,6 +1,7 @@
 const api = require('../../../utils/data-source')
 const guard = require('../../../utils/merchant-guard')
 const menuCache = require('../../../utils/menu-cache')
+const safe = require('../../../utils/safe')
 
 const DEFAULT_SLOTS = [
   { label: '11:30-12:00', limit: 20 },
@@ -19,7 +20,10 @@ Page({
     history: [],
     showHistory: false,
     showPublish: false,
-    publishing: false
+    publishing: false,
+    categories: [],
+    newCategoryName: '',
+    categorySaving: false
   },
 
   onShow() {
@@ -30,7 +34,8 @@ Page({
     return Promise.all([
       api.call('merchant.listDishes'),
       api.call('merchant.menuDetail'),
-      api.call('merchant.menuHistory').catch(() => ({ list: [] }))
+      api.call('merchant.menuHistory').catch(() => ({ list: [] })),
+      api.call('merchant.listCategories').catch(() => ({ list: [] }))
     ])
       .then((results) => {
         const dishes = results[0].list || []
@@ -40,18 +45,27 @@ Page({
         const todayDishIds = Array.isArray(menu.dishIds) ? menu.dishIds : []
         // 区分「菜品库」与「今日已发布菜单」，避免商家误以为新增菜没生效
         const dishList = dishes.map((dish) => Object.assign({}, dish, {
+          name: safe.safeText(dish.name, '未命名菜品'),
+          category: safe.safeText(dish.category, ''),
           inToday: todayDishIds.indexOf(dish._id) >= 0,
-          priceText: dish.priceText || '0.00',
-          specs: Array.isArray(dish.specs) ? dish.specs : []
+          priceText: safe.safeText(dish.priceText, '0.00'),
+          specs: safe.safeArray(dish.specs)
+        }))
+        const categories = safe.safeArray(results[3].list).map((item, index) => ({
+          categoryId: safe.safeText(item.categoryId, 'c' + index),
+          name: safe.safeText(item.name, '未命名分类'),
+          sort: safe.safeInt(item.sort, index + 1),
+          enabled: item.enabled !== false
         }))
         this.setData({
           loading: false,
           dishes: dishList,
           menu,
-          dateLabel: menu.dateLabel || '',
-          menuTitle: menu.title || '今日菜单',
+          dateLabel: safe.safeText(menu.dateLabel, ''),
+          menuTitle: safe.safeText(menu.title, '今日菜单'),
           editSlots: slots.length ? slots : DEFAULT_SLOTS.slice(),
           history,
+          categories,
           showPublish: false
         })
       })
@@ -59,6 +73,113 @@ Page({
         this.setData({ loading: false })
         api.showError(err, '加载失败', { onRetry: () => this.load() })
       })
+  },
+
+  /* ------------------------- 分类管理 ------------------------- */
+
+  onCategoryNameInput(e) {
+    this.setData({ newCategoryName: String(e.detail.value || '') })
+  },
+
+  addCategory() {
+    if (this.data.categorySaving) return
+    const name = String(this.data.newCategoryName || '').trim()
+    if (!name) {
+      wx.showToast({ title: '请填写分类名称', icon: 'none' })
+      return
+    }
+    this.setData({ categorySaving: true })
+    api
+      .call('merchant.saveCategory', { name })
+      .then(() => {
+        this.setData({ categorySaving: false, newCategoryName: '' })
+        menuCache.invalidate()
+        wx.showToast({ title: '已新增分类', icon: 'none' })
+        this.load()
+      })
+      .catch((err) => {
+        this.setData({ categorySaving: false })
+        api.showError(err, '新增分类失败')
+      })
+  },
+
+  renameCategory(e) {
+    const categoryId = e.currentTarget.dataset.id
+    const name = String(e.detail.value || '').trim()
+    const current = this.data.categories.filter((item) => item.categoryId === categoryId)[0]
+    if (!current || name === current.name) return
+    if (!name) {
+      wx.showToast({ title: '分类名称不能为空', icon: 'none' })
+      this.load()
+      return
+    }
+    api
+      .call('merchant.saveCategory', { categoryId, name, enabled: current.enabled })
+      .then(() => {
+        menuCache.invalidate()
+        wx.showToast({ title: '已重命名，菜品已同步', icon: 'none' })
+        this.load()
+      })
+      .catch((err) => api.showError(err, '重命名失败'))
+  },
+
+  toggleCategory(e) {
+    const categoryId = e.currentTarget.dataset.id
+    const enabled = e.currentTarget.dataset.enabled === 'true'
+    api
+      .call('merchant.saveCategory', { categoryId, enabled: !enabled })
+      .then(() => {
+        menuCache.invalidate()
+        this.load()
+      })
+      .catch((err) => api.showError(err, '切换分类失败'))
+  },
+
+  moveCategory(e) {
+    const categoryId = e.currentTarget.dataset.id
+    const dir = Number(e.currentTarget.dataset.dir)
+    const list = this.data.categories.slice()
+    const index = list.findIndex((item) => item.categoryId === categoryId)
+    const target = index + (dir < 0 ? -1 : 1)
+    if (index < 0 || target < 0 || target >= list.length) {
+      wx.showToast({ title: '已经到最' + (dir < 0 ? '前' : '后') + '了', icon: 'none' })
+      return
+    }
+    const moved = list[index]
+    list[index] = list[target]
+    list[target] = moved
+    const ordered = list.map((item, i) => ({
+      categoryId: item.categoryId,
+      name: item.name,
+      sort: i + 1,
+      enabled: item.enabled
+    }))
+    Promise.all(ordered.map((item) => api.call('merchant.saveCategory', item)))
+      .then(() => {
+        menuCache.invalidate()
+        this.setData({ categories: list })
+      })
+      .catch((err) => api.showError(err, '排序失败'))
+  },
+
+  deleteCategory(e) {
+    const categoryId = e.currentTarget.dataset.id
+    const name = e.currentTarget.dataset.name
+    wx.showModal({
+      title: '删除分类',
+      content: `确定删除分类「${name}」？该分类下的菜品会归入「其他」。`,
+      success: (res) => {
+        if (!res.confirm) return
+        api
+          .call('merchant.deleteCategory', { categoryId })
+          .then(() => {
+            menuCache.invalidate()
+            wx.showToast({ title: '已删除分类', icon: 'none' })
+            this.load()
+          })
+          .catch((err) => api.showError(err, '删除分类失败'))
+      }
+    })
   },
 
   togglePublishPanel() {

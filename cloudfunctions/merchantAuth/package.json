@@ -1,0 +1,9 @@
+{
+  "name": "merchantAuth",
+  "version": "1.0.0",
+  "description": "商家后台登录（账号密码 + HMAC token）",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3"
+  }
+}

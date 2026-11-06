@@ -3,11 +3,12 @@ const money = require('../../../utils/money')
 const image = require('../../../utils/image')
 const guard = require('../../../utils/merchant-guard')
 const menuCache = require('../../../utils/menu-cache')
+const safe = require('../../../utils/safe')
 
 function emptyForm() {
   return {
     name: '',
-    category: '盖饭',
+    category: '其他',
     priceYuan: '',
     imageUrl: '',
     sortOrder: '0',
@@ -22,7 +23,9 @@ Page({
     dishId: '',
     form: emptyForm(),
     specs: [],
-    categories: ['盖饭', '面食', '小食', '饮品', '其他'],
+    categories: ['其他'],
+    newCategoryName: '',
+    categorySaving: false,
     saving: false,
     uploading: false
   },
@@ -33,9 +36,56 @@ Page({
       .requireMerchant()
       .then(() => {
         this.setData({ dishId })
+        this.loadCategories()
         if (dishId) this.loadDish(dishId)
       })
       .catch(() => {})
+  },
+
+  loadCategories() {
+    return api
+      .call('merchant.listCategories')
+      .then((res) => {
+        const names = safe
+          .safeArray(res && res.list)
+          .filter((item) => item && item.enabled !== false)
+          .map((item) => safe.safeText(item.name, ''))
+          .filter((name, index, arr) => name && arr.indexOf(name) === index)
+        if (!names.length) names.push('其他')
+        const current = this.data.form.category
+        if (current && names.indexOf(current) < 0) names.push(current)
+        this.setData({ categories: names })
+      })
+      .catch(() => {
+        this.setData({ categories: ['其他'] })
+      })
+  },
+
+  onNewCategoryInput(e) {
+    this.setData({ newCategoryName: String(e.detail.value || '') })
+  },
+
+  addCategoryInline() {
+    if (this.data.categorySaving) return
+    const name = String(this.data.newCategoryName || '').trim()
+    if (!name) {
+      wx.showToast({ title: '请填写分类名称', icon: 'none' })
+      return
+    }
+    this.setData({ categorySaving: true })
+    api
+      .call('merchant.saveCategory', { name })
+      .then(() => {
+        const categories = this.data.categories.slice()
+        if (categories.indexOf(name) < 0) categories.push(name)
+        this.setData({ categorySaving: false, newCategoryName: '', categories, 'form.category': name })
+        menuCache.invalidate()
+        wx.showToast({ title: '已新增分类', icon: 'none' })
+      })
+      .catch((err) => {
+        this.setData({ categorySaving: false })
+        api.showError(err, '新增分类失败')
+      })
   },
 
   loadDish(dishId) {
@@ -45,11 +95,15 @@ Page({
       .then((res) => {
         const dish = (res.list || []).filter((item) => item._id === dishId)[0]
         if (!dish) throw new Error('菜品不存在或已被删除')
+        const category = safe.safeText(dish.category, '其他')
+        const categories = this.data.categories.slice()
+        if (categories.indexOf(category) < 0) categories.push(category)
         this.setData({
           loading: false,
+          categories,
           form: {
-            name: dish.name,
-            category: dish.category || '其他',
+            name: safe.safeText(dish.name, '').slice(0, 20),
+            category,
             priceYuan: money.formatCents(dish.priceCents),
             imageUrl: dish.imageUrl || '',
             sortOrder: String(dish.sortOrder || 0),

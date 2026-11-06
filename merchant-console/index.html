@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>商家后台 · 点餐 SaaS</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-dot"></span>
+      <span>商家后台</span>
+      <small id="shop-label">只访问当前商家的数据</small>
+    </div>
+    <div class="env-line">
+      <label for="env-id">环境 ID</label>
+      <input id="env-id" class="env-input" placeholder="ordering-d0gyct6z1ff2afebd" />
+      <span id="conn-status" class="conn-status">未连接</span>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section id="login-panel" class="card login-card">
+      <h2>商家登录</h2>
+      <p class="muted">账号密码由平台运营方创建商家时生成；忘记密码请联系平台管理员重置。</p>
+      <form id="login-form" class="form-grid">
+        <label>商家账号<input id="login-username" autocomplete="username" required /></label>
+        <label>密码<input id="login-password" type="password" autocomplete="current-password" required /></label>
+        <button class="btn primary" type="submit">登录</button>
+      </form>
+      <p id="login-error" class="error-text"></p>
+    </section>
+
+    <section id="app-panel" class="hidden">
+      <div class="toolbar">
+        <div class="toolbar-left"><span id="shop-meta" class="muted"></span></div>
+        <div class="toolbar-right">
+          <span class="badge ok" id="today-badge">今日</span>
+          <input id="global-date" type="date" class="date-input" />
+          <button class="btn small" id="btn-refresh">刷新</button>
+          <button class="btn small danger" id="btn-logout">退出</button>
+        </div>
+      </div>
+
+      <nav class="tabs" id="tabs">
+        <button data-tab="menu" class="tab active">菜单</button>
+        <button data-tab="categories" class="tab">分类</button>
+        <button data-tab="orders" class="tab">订单看板</button>
+        <button data-tab="packing" class="tab">打包</button>
+        <button data-tab="stats" class="tab">营收</button>
+        <button data-tab="staff" class="tab">员工</button>
+        <button data-tab="export" class="tab">导出</button>
+      </nav>
+
+      <section id="tab-menu" class="tab-panel">
+        <div class="panel-head">
+          <h2>菜品与今日菜单</h2>
+          <div class="row">
+            <button class="btn primary small" id="btn-new-dish">＋ 新增菜品</button>
+          </div>
+        </div>
+        <div class="card publish-card">
+          <h4>发布今日菜单</h4>
+          <p class="muted">勾选要上架的菜品后点发布；顾客端下拉刷新即可见。只改菜品库不发布，顾客端不会展示。</p>
+          <div class="row wrap">
+            <input id="menu-title" placeholder="菜单标题，如 今日午餐" />
+            <input id="menu-slots" placeholder="时段格式：午餐|20,晚餐|20" />
+            <button class="btn primary small" id="btn-publish">发布 / 更新今日菜单</button>
+          </div>
+          <p id="menu-status" class="muted"></p>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr><th>今日</th><th>菜品</th><th>分类</th><th>价格</th><th>排序</th><th>状态</th><th>操作</th></tr>
+            </thead>
+            <tbody id="dish-tbody"><tr><td colspan="7" class="muted">登录后加载…</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="tab-categories" class="tab-panel hidden">
+        <div class="panel-head">
+          <h2>菜品分类</h2>
+          <div class="row">
+            <input id="new-category" placeholder="新分类名称（1-12 字）" />
+            <button class="btn primary small" id="btn-add-category">＋ 新增分类</button>
+          </div>
+        </div>
+        <p class="muted">顾客端按排序展示分类；停用分类不展示；分类下没有菜品时也不会出现空标题。</p>
+        <div id="category-list" class="category-list"><p class="muted">加载中…</p></div>
+      </section>
+
+      <section id="tab-orders" class="tab-panel hidden">
+        <div class="panel-head">
+          <h2>订单看板</h2>
+          <div class="row">
+            <select id="order-status-filter">
+              <option value="">全部状态</option>
+              <option value="pending_confirm">待确认收款</option>
+              <option value="paid">已收款</option>
+              <option value="accepted">已接单</option>
+              <option value="ready">已出餐</option>
+              <option value="completed">已完成</option>
+            </select>
+            <button class="btn small" id="btn-orders">刷新</button>
+          </div>
+        </div>
+        <div id="order-list" class="order-list"><p class="muted">加载中…</p></div>
+      </section>
+
+      <section id="tab-packing" class="tab-panel hidden">
+        <div class="panel-head">
+          <h2>打包清单</h2>
+          <div class="row"><button class="btn small" id="btn-packing">刷新</button></div>
+        </div>
+        <div id="packing-content"><p class="muted">加载中…</p></div>
+      </section>
+
+      <section id="tab-stats" class="tab-panel hidden">
+        <div class="panel-head">
+          <h2>当日营收</h2>
+          <div class="row"><button class="btn small" id="btn-stats">刷新</button></div>
+        </div>
+        <div id="stats-content"><p class="muted">加载中…</p></div>
+      </section>
+
+      <section id="tab-staff" class="tab-panel hidden">
+        <div class="panel-head">
+          <h2>员工（小程序端接单）</h2>
+          <div class="row">
+            <input id="staff-openid" placeholder="员工小程序 openid" />
+            <input id="staff-name" placeholder="备注名" />
+            <select id="staff-role"><option value="staff">员工</option><option value="owner">店主</option></select>
+            <button class="btn primary small" id="btn-bind-staff">绑定</button>
+          </div>
+        </div>
+        <p class="muted">绑定后员工可用小程序进入商家端接单/出餐；小程序商家端为轻操作，重管理在本页。</p>
+        <div id="staff-list" class="category-list"><p class="muted">加载中…</p></div>
+      </section>
+
+      <section id="tab-export" class="tab-panel hidden">
+        <div class="panel-head">
+          <h2>导出订单 CSV</h2>
+          <div class="row">
+            <button class="btn primary small" id="btn-export">导出当前日期</button>
+          </div>
+        </div>
+        <p class="muted">仅导出本商家数据；导出动作会写入审计日志（谁、何时、导出条数），不记录订单内容。</p>
+        <p id="export-result" class="muted"></p>
+      </section>
+    </section>
+  </main>
+
+  <div id="modal" class="modal hidden">
+    <div class="modal-box">
+      <div class="modal-head">
+        <h3 id="modal-title">标题</h3>
+        <button class="btn small" id="modal-close">关闭</button>
+      </div>
+      <div id="modal-body" class="modal-body"></div>
+      <div id="modal-foot" class="modal-foot"></div>
+    </div>
+  </div>
+
+  <script src="https://static.cloudbase.net/cloudbase-js-sdk/2.17.5/cloudbase.full.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
