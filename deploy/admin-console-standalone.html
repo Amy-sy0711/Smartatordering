@@ -1,0 +1,979 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>平台运营后台 · 点餐 SaaS</title>
+  <style>
+:root {
+  --bg: #f4f6fb;
+  --panel: #ffffff;
+  --ink: #1f2733;
+  --muted: #6b7686;
+  --line: #e3e8f0;
+  --primary: #2361d8;
+  --primary-dark: #1a4bab;
+  --danger: #c62828;
+  --warn: #e85d04;
+  --ok: #1b7f4b;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 14px;
+}
+
+code { background: #eef2f8; padding: 1px 5px; border-radius: 4px; }
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 22px;
+  background: #0f1a2b;
+  color: #fff;
+}
+
+.brand { display: flex; align-items: baseline; gap: 10px; font-weight: 600; font-size: 16px; }
+.brand small { font-weight: 400; color: #9fb3cc; font-size: 12px; }
+.brand-dot { width: 10px; height: 10px; border-radius: 50%; background: #46d39a; display: inline-block; }
+
+.env-line { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #9fb3cc; }
+.env-input {
+  width: 280px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid #33445c;
+  background: #16233a;
+  color: #fff;
+}
+.conn-status { color: #ffc36b; }
+
+.wrap { padding: 22px; max-width: 1240px; margin: 0 auto; }
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 18px;
+  margin-bottom: 16px;
+}
+
+.login-card { max-width: 460px; margin: 60px auto; }
+
+h2 { margin: 0 0 12px; font-size: 18px; }
+h3 { margin: 0; font-size: 16px; }
+
+.muted { color: var(--muted); font-size: 12.5px; line-height: 1.6; }
+.note { margin-top: 10px; }
+.error-text { color: var(--danger); min-height: 18px; margin: 8px 0 0; }
+.hidden { display: none !important; }
+
+.form-grid { display: grid; gap: 12px; }
+.form-grid label { display: grid; gap: 6px; font-size: 13px; color: #45505f; }
+
+input, select, textarea {
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fbfcfe;
+  color: var(--ink);
+  font-size: 13.5px;
+  outline: none;
+}
+input:focus, select:focus, textarea:focus { border-color: var(--primary); background: #fff; }
+
+.btn {
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink);
+  padding: 8px 14px;
+  border-radius: 9px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.btn:hover { border-color: #b9c7dc; }
+.btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+.btn.primary:hover { background: var(--primary-dark); }
+.btn.danger { color: var(--danger); border-color: #f0c4c4; }
+.btn.small { padding: 6px 10px; font-size: 12px; }
+.btn:disabled { opacity: .55; cursor: not-allowed; }
+
+.toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; }
+.toolbar-right { display: flex; gap: 8px; }
+
+.tabs { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+.tab {
+  border: 1px solid var(--line);
+  background: #fff;
+  padding: 8px 16px;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 13.5px;
+}
+.tab.active { background: #e9f0ff; border-color: #b8ccf5; color: var(--primary-dark); font-weight: 600; }
+
+.panel-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+.row { display: flex; align-items: center; gap: 8px; }
+.row.wrap { flex-wrap: wrap; }
+.row input, .row select { width: 180px; }
+
+.table-wrap { overflow: auto; border: 1px solid var(--line); border-radius: 10px; }
+.data-table { width: 100%; border-collapse: collapse; min-width: 760px; }
+.data-table th, .data-table td { padding: 10px 12px; border-bottom: 1px solid var(--line); text-align: left; font-size: 13px; vertical-align: middle; }
+.data-table th { background: #f7f9fd; color: #526071; font-weight: 600; white-space: nowrap; }
+.data-table tr:last-child td { border-bottom: none; }
+
+.badge { display: inline-block; padding: 2px 8px; border-radius: 99px; font-size: 11.5px; }
+.badge.ok { background: #e5f7ee; color: var(--ok); }
+.badge.off { background: #fdeaea; color: var(--danger); }
+.badge.warn { background: #fff3e5; color: var(--warn); }
+
+.health-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+.health-block { border: 1px solid var(--line); border-radius: 12px; padding: 14px; background: #fbfcfe; }
+.health-block h4 { margin: 0 0 10px; font-size: 14px; }
+.kv { display: flex; justify-content: space-between; gap: 10px; padding: 5px 0; border-bottom: 1px dashed #e8edf5; font-size: 12.5px; }
+.kv:last-child { border-bottom: none; }
+.kv span:last-child { color: #334155; font-weight: 500; }
+
+.repair-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; margin-bottom: 14px; }
+.repair-grid .card { margin: 0; display: grid; gap: 10px; }
+.result-box {
+  background: #0f1a2b;
+  color: #cfe0ff;
+  padding: 14px;
+  border-radius: 12px;
+  min-height: 120px;
+  overflow: auto;
+  font-size: 12.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(12, 20, 34, .5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 40;
+  padding: 20px;
+}
+.modal-box {
+  width: min(720px, 100%);
+  max-height: 88vh;
+  overflow: auto;
+  background: #fff;
+  border-radius: 16px;
+  padding: 18px;
+}
+.modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+.modal-body { display: grid; gap: 10px; }
+.modal-body label { display: grid; gap: 5px; font-size: 12.5px; color: #45505f; }
+.modal-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+
+.secret-box {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px dashed #e8a33d;
+  background: #fff8ec;
+  border-radius: 10px;
+  font-size: 13px;
+}
+.secret-box strong { color: #b45309; letter-spacing: 1px; }
+
+@media (max-width: 640px) {
+  .wrap { padding: 12px; }
+  .env-input { width: 100%; }
+  .panel-head .row { flex-wrap: wrap; }
+}
+
+</style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-dot"></span>
+      <span>平台运营后台</span>
+      <small>只做租户与系统维护，不读取商家业务明细</small>
+    </div>
+    <div class="env-line">
+      <label for="env-id">环境 ID</label>
+      <input id="env-id" class="env-input" value="ordering-d0gyct6z1ff2afebd" placeholder="ordering-d0gyct6z1ff2afebd" />
+      <span id="conn-status" class="conn-status">未连接</span>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section id="login-panel" class="card login-card">
+      <h2>管理员登录</h2>
+      <p class="muted">账号来自云函数环境变量 <code>ADMIN_BOOTSTRAP_PASSWORD</code> 首次创建，或已有管理员。</p>
+      <form id="login-form" class="form-grid">
+        <label>用户名<input id="login-username" autocomplete="username" required /></label>
+        <label>密码<input id="login-password" type="password" autocomplete="current-password" required /></label>
+        <button class="btn primary" type="submit">登录</button>
+      </form>
+      <p id="login-error" class="error-text"></p>
+    </section>
+
+    <section id="app-panel" class="hidden">
+      <div class="toolbar">
+        <div class="toolbar-left">
+          <span id="admin-name" class="muted"></span>
+        </div>
+        <div class="toolbar-right">
+          <button class="btn small" id="btn-refresh-all">刷新</button>
+          <button class="btn small danger" id="btn-logout">退出登录</button>
+        </div>
+      </div>
+
+      <nav class="tabs" id="tabs">
+        <button data-tab="merchants" class="tab active">商家</button>
+        <button data-tab="health" class="tab">系统健康</button>
+        <button data-tab="repair" class="tab">修复工具</button>
+        <button data-tab="audit" class="tab">审计日志</button>
+      </nav>
+
+      <section id="tab-merchants" class="tab-panel">
+        <div class="panel-head">
+          <h2>商家（租户）</h2>
+          <div class="row">
+            <input id="merchant-search" placeholder="搜索商家 ID / 名称" />
+            <select id="merchant-status-filter">
+              <option value="">全部状态</option>
+              <option value="active">启用</option>
+              <option value="disabled">停用</option>
+            </select>
+            <button class="btn small" id="btn-search">搜索</button>
+            <button class="btn primary small" id="btn-create-merchant">＋ 新建商家</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>商家 ID</th>
+                <th>名称</th>
+                <th>状态</th>
+                <th>员工</th>
+                <th>今日订单数</th>
+                <th>套餐 / 有效期</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="merchant-tbody">
+              <tr><td colspan="7" class="muted">登录后加载…</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="muted note">平台侧只展示计数（今日订单数、员工数）；订单内容、菜品、顾客信息、营收明细不对平台开放。</p>
+      </section>
+
+      <section id="tab-health" class="tab-panel hidden">
+        <div class="panel-head">
+          <h2>系统健康</h2>
+          <div class="row">
+            <input id="health-merchant-id" placeholder="商家 ID（默认 merchant_001）" />
+            <button class="btn small" id="btn-health">刷新体检</button>
+          </div>
+        </div>
+        <div id="health-content" class="health-grid">
+          <p class="muted">点击「刷新体检」加载云函数连通性、集合计数、默认商家状态、支付模式、今日菜单发布状态与最近错误码分布。</p>
+        </div>
+      </section>
+
+      <section id="tab-repair" class="tab-panel hidden">
+        <div class="panel-head">
+          <h2>修复工具（按 ID 的盲操作）</h2>
+          <p class="muted">所有修复动作只返回成功/失败或处理条数，不返回任何业务内容。</p>
+        </div>
+        <div class="repair-grid">
+          <div class="card">
+            <label>目标商家 ID<input id="repair-merchant-id" placeholder="merchant_001" /></label>
+            <div class="row wrap">
+              <button class="btn small" data-repair="repair.seedDefaults">补写默认商家/配置</button>
+              <button class="btn small" data-repair="repair.rebuildIndexes">检查集合/索引</button>
+              <button class="btn small" data-repair="repair.cleanOrphans">清理孤儿员工绑定</button>
+              <button class="btn small" data-repair="repair.resetStaff">重置员工绑定</button>
+              <button class="btn small" data-repair="repair.revokeTokens">吊销商家登录令牌</button>
+              <button class="btn small" data-repair="repair.refreshMenuCache">强制刷新菜单缓存</button>
+            </div>
+          </div>
+          <div class="card">
+            <label>订单 ID（仅用于重发支付回调，不返回订单内容）<input id="repair-order-id" placeholder="order_xxx" /></label>
+            <button class="btn small" data-repair="repair.resendPaymentCallback">重发支付回调</button>
+          </div>
+          <div class="card">
+            <label>修改管理员密码</label>
+            <input id="pw-current" type="password" placeholder="当前密码" />
+            <input id="pw-next" type="password" placeholder="新密码（至少 8 位）" />
+            <button class="btn small" id="btn-change-password">修改密码</button>
+          </div>
+        </div>
+        <pre id="repair-result" class="result-box">等待操作…</pre>
+      </section>
+
+      <section id="tab-audit" class="tab-panel hidden">
+        <div class="panel-head">
+          <h2>审计日志</h2>
+          <div class="row">
+            <input id="audit-limit" placeholder="条数（默认 50）" />
+            <button class="btn small" id="btn-audit">刷新</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr><th>时间</th><th>操作者</th><th>动作</th><th>商家</th><th>结果</th><th>来源</th></tr>
+            </thead>
+            <tbody id="audit-tbody">
+              <tr><td colspan="6" class="muted">登录后加载…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <div id="modal" class="modal hidden">
+    <div class="modal-box">
+      <div class="modal-head">
+        <h3 id="modal-title">标题</h3>
+        <button class="btn small" id="modal-close">关闭</button>
+      </div>
+      <div id="modal-body" class="modal-body"></div>
+      <div id="modal-foot" class="modal-foot"></div>
+    </div>
+  </div>
+
+  <script src="https://static.cloudbase.net/cloudbase-js-sdk/2.17.5/cloudbase.full.js"></script>
+  <script>
+(function () {
+  'use strict'
+
+  const ENV_KEY = 'ordering_admin_env'
+  const TOKEN_KEY = 'ordering_admin_token'
+  const DEFAULT_ENV = 'ordering-d0gyct6z1ff2afebd'
+
+  let cloudApp = null
+  let token = sessionStorage.getItem(TOKEN_KEY) || ''
+  let adminName = ''
+  let merchantsCache = []
+
+  function $(id) {
+    return document.getElementById(id)
+  }
+
+  function esc(value) {
+    return String(value === undefined || value === null ? '' : value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+  }
+
+  function fmtTime(value) {
+    if (!value) return '—'
+    const date = new Date(value)
+    if (isNaN(date.getTime())) return String(value)
+    return date.toLocaleString('zh-CN')
+  }
+
+  function setConn(text) {
+    const el = $('conn-status')
+    if (el) el.textContent = text
+  }
+
+  async function ensureApp() {
+    if (cloudApp) return cloudApp
+    const env = ($('env-id').value || '').trim() || DEFAULT_ENV
+    localStorage.setItem(ENV_KEY, env)
+    if (typeof cloudbase === 'undefined') {
+      throw new Error('CloudBase JS SDK 未加载，请检查网络或 CDN 是否可访问')
+    }
+    cloudApp = cloudbase.init({ env })
+    // CloudBase JS SDK 2.x 标准匿名登录：先 auth，再 anonymousAuthProvider().signIn()
+    const auth = cloudApp.auth({ persistence: 'local' })
+    try {
+      if (auth && typeof auth.anonymousAuthProvider === 'function') {
+        await auth.anonymousAuthProvider().signIn()
+      } else if (typeof auth.signInAnonymously === 'function') {
+        // 兼容旧版 SDK
+        await auth.signInAnonymously()
+      } else if (typeof auth.anonymousAuth === 'function') {
+        await auth.anonymousAuth()
+      } else {
+        throw new Error('当前 CloudBase SDK 不支持匿名登录 API')
+      }
+      if (auth && typeof auth.getLoginState === 'function') {
+        const state = await auth.getLoginState()
+        if (!state) throw new Error('匿名登录后未取得登录态')
+      }
+    } catch (err) {
+      // 匿名登录失败时仍继续，callFunction 会返回明确的权限错误，便于页面上提示
+      console.warn('[admin] 匿名登录失败', err)
+    }
+    setConn('已连接 ' + env)
+    return cloudApp
+  }
+
+  async function callFunction(name, action, payload, withToken) {
+    await ensureApp()
+    const body = { action, payload: Object.assign({}, payload || {}) }
+    if (withToken !== false) body.payload.token = token
+    const res = await cloudApp.callFunction({ name, data: body })
+    const result = (res && res.result) || {}
+    if (result.code !== 0) {
+      const err = new Error(result.message || '接口失败：' + result.code)
+      err.code = result.code
+      throw err
+    }
+    return result.data
+  }
+
+  /* ------------------------------ 登录 / 会话 ------------------------------ */
+
+  async function login(event) {
+    if (event) event.preventDefault()
+    $('login-error').textContent = ''
+    const username = $('login-username').value.trim()
+    const password = $('login-password').value
+    if (!username || !password) {
+      $('login-error').textContent = '请输入用户名和密码'
+      return
+    }
+    try {
+      const data = await callFunction('adminAuth', 'login', { username, password }, false)
+      token = data.token
+      adminName = (data.admin && data.admin.username) || username
+      sessionStorage.setItem(TOKEN_KEY, token)
+      showApp()
+      await refreshAll()
+    } catch (err) {
+      $('login-error').textContent = err.message || '登录失败'
+    }
+  }
+
+  function showApp() {
+    $('login-panel').classList.add('hidden')
+    $('app-panel').classList.remove('hidden')
+    $('admin-name').textContent = adminName ? '当前管理员：' + adminName : ''
+  }
+
+  function logout() {
+    token = ''
+    adminName = ''
+    sessionStorage.removeItem(TOKEN_KEY)
+    $('app-panel').classList.add('hidden')
+    $('login-panel').classList.remove('hidden')
+    $('login-password').value = ''
+  }
+
+  function handleAuthError(err) {
+    const code = err && err.code
+    if (code === 'UNAUTHORIZED' || code === 'TOKEN_EXPIRED' || code === 'TOKEN_FORGED' || code === 'TOKEN_INVALID') {
+      logout()
+      $('login-error').textContent = (err && err.message) || '登录已失效，请重新登录'
+      return true
+    }
+    return false
+  }
+
+  /* ------------------------------ 商家列表 ------------------------------ */
+
+  async function loadMerchants() {
+    const tbody = $('merchant-tbody')
+    tbody.innerHTML = '<tr><td colspan="7" class="muted">加载中…</td></tr>'
+    try {
+      const data = await callFunction('adminApi', 'merchant.list', {
+        search: $('merchant-search').value.trim(),
+        status: $('merchant-status-filter').value
+      })
+      merchantsCache = data.list || []
+      renderMerchants()
+    } catch (err) {
+      if (handleAuthError(err)) return
+      tbody.innerHTML = '<tr><td colspan="7" class="error-text">' + esc(err.message) + '</td></tr>'
+    }
+  }
+
+  function statusBadge(status) {
+    if (status === 'disabled') return '<span class="badge off">已停用</span>'
+    return '<span class="badge ok">启用</span>'
+  }
+
+  function renderMerchants() {
+    const tbody = $('merchant-tbody')
+    if (!merchantsCache.length) {
+      tbody.innerHTML = '<tr><td colspan="7" class="muted">暂无商家，点击「新建商家」创建。</td></tr>'
+      return
+    }
+    tbody.innerHTML = merchantsCache
+      .map((item) => {
+        return (
+          '<tr>' +
+          '<td class="mono">' + esc(item.merchantId) + '</td>' +
+          '<td>' + esc(item.name) + '</td>' +
+          '<td>' + statusBadge(item.status) + '</td>' +
+          '<td>' + esc(item.staffCount) + '</td>' +
+          '<td>' + esc(item.todayOrderCount) + '</td>' +
+          '<td>' + esc(item.plan || 'basic') + '<br><span class="muted">' + esc(item.expiresAt || '未设置') + '</span></td>' +
+          '<td class="row">' +
+          '<button class="btn small" data-act="edit" data-id="' + esc(item.merchantId) + '">编辑</button>' +
+          '<button class="btn small" data-act="staff" data-id="' + esc(item.merchantId) + '">员工</button>' +
+          '<button class="btn small" data-act="toggle" data-id="' + esc(item.merchantId) + '">' + (item.status === 'disabled' ? '启用' : '停用') + '</button>' +
+          '<button class="btn small" data-act="resetpw" data-id="' + esc(item.merchantId) + '">重置密码</button>' +
+          '</td>' +
+          '</tr>'
+        )
+      })
+      .join('')
+
+    tbody.querySelectorAll('button[data-act]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const merchantId = btn.getAttribute('data-id')
+        const act = btn.getAttribute('data-act')
+        if (act === 'edit') openEditMerchant(merchantId)
+        else if (act === 'staff') openStaff(merchantId)
+        else if (act === 'toggle') toggleMerchant(merchantId)
+        else if (act === 'resetpw') resetPassword(merchantId)
+      })
+    })
+  }
+
+  function findMerchant(merchantId) {
+    return merchantsCache.filter((item) => item.merchantId === merchantId)[0] || null
+  }
+
+  /* ------------------------------ 弹窗 ------------------------------ */
+
+  function openModal(title, bodyHtml) {
+    $('modal-title').textContent = title
+    $('modal-body').innerHTML = bodyHtml
+    $('modal-foot').innerHTML = ''
+    $('modal').classList.remove('hidden')
+    return $('modal-body')
+  }
+
+  function closeModal() {
+    $('modal').classList.add('hidden')
+  }
+
+  function modalButton(label, primary, onClick) {
+    const btn = document.createElement('button')
+    btn.className = 'btn' + (primary ? ' primary' : '')
+    btn.textContent = label
+    btn.addEventListener('click', onClick)
+    $('modal-foot').appendChild(btn)
+    return btn
+  }
+
+  function openCreateMerchant() {
+    openModal(
+      '新建商家',
+      '<label>商家名称（必填）<input id="m-name" maxlength="20" /></label>' +
+        '<label>商家 ID（可留空自动生成，仅字母数字下划线）<input id="m-id" placeholder="merchant_002" /></label>' +
+        '<label>联系人 / 备注<input id="m-contact" maxlength="100" /></label>' +
+        '<label>套餐（占位）<input id="m-plan" value="basic" /></label>' +
+        '<label>有效期（占位）<input id="m-expires" placeholder="如 2027-12-31" /></label>'
+    )
+    modalButton('取消', false, closeModal)
+    modalButton('创建', true, createMerchant)
+  }
+
+  async function createMerchant() {
+    const payload = {
+      name: $('m-name').value.trim(),
+      merchantId: $('m-id').value.trim(),
+      contact: $('m-contact').value.trim(),
+      plan: $('m-plan').value.trim() || 'basic',
+      expiresAt: $('m-expires').value.trim() || null
+    }
+    if (!payload.name) {
+      alert('请填写商家名称')
+      return
+    }
+    try {
+      const data = await callFunction('adminApi', 'merchant.create', payload)
+      await loadMerchants()
+      openModal(
+        '商家已创建（初始密码只显示这一次）',
+        '<p>商家 ID：<code>' + esc(data.merchantId) + '</code></p>' +
+          '<p>商家后台登录账号：<code>' + esc(data.loginUsername) + '</code></p>' +
+          '<div class="secret-box">初始密码：<strong>' + esc(data.initialPassword) + '</strong><br>请线下交付给商家；关闭后不再显示，可在列表点「重置密码」重新生成。</div>'
+      )
+      modalButton('我已记录', true, closeModal)
+    } catch (err) {
+      if (handleAuthError(err)) return
+      alert(err.message)
+    }
+  }
+
+  function openEditMerchant(merchantId) {
+    const item = findMerchant(merchantId)
+    if (!item) return
+    const flags = item.flags || {}
+    openModal(
+      '编辑商家 · ' + merchantId,
+      '<label>名称<input id="e-name" maxlength="20" value="' + esc(item.name) + '" /></label>' +
+        '<label>联系人<input id="e-contact" maxlength="100" value="' + esc(item.contact) + '" /></label>' +
+        '<label>套餐<input id="e-plan" value="' + esc(item.plan || 'basic') + '" /></label>' +
+        '<label>有效期<input id="e-expires" value="' + esc(item.expiresAt || '') + '" placeholder="如 2027-12-31" /></label>' +
+        '<label>状态<select id="e-status"><option value="active"' + (item.status !== 'disabled' ? ' selected' : '') + '>启用</option><option value="disabled"' + (item.status === 'disabled' ? ' selected' : '') + '>停用</option></select></label>' +
+        '<label><span><input type="checkbox" id="e-disable-ordering" style="width:auto" ' + (flags.disableOrdering ? 'checked' : '') + ' /> 停用下单</span></label>' +
+        '<label><span><input type="checkbox" id="e-pickup" style="width:auto" ' + (flags.pickupOnly ? 'checked' : '') + ' /> 只允许自提</span></label>' +
+        '<label>并发订单上限（0 表示不限）<input id="e-max-orders" type="number" min="0" max="500" value="' + esc(flags.maxConcurrentOrders || 0) + '" /></label>'
+    )
+    modalButton('取消', false, closeModal)
+    modalButton('保存', true, async () => {
+      try {
+        await callFunction('adminApi', 'merchant.update', {
+          merchantId,
+          name: $('e-name').value.trim(),
+          contact: $('e-contact').value.trim(),
+          plan: $('e-plan').value.trim() || 'basic',
+          expiresAt: $('e-expires').value.trim() || null,
+          status: $('e-status').value
+        })
+        await callFunction('adminApi', 'merchant.setFlags', {
+          merchantId,
+          flags: {
+            disableOrdering: $('e-disable-ordering').checked,
+            pickupOnly: $('e-pickup').checked,
+            maxConcurrentOrders: Number($('e-max-orders').value) || 0
+          }
+        })
+        closeModal()
+        await loadMerchants()
+      } catch (err) {
+        if (handleAuthError(err)) return
+        alert(err.message)
+      }
+    })
+  }
+
+  async function toggleMerchant(merchantId) {
+    const item = findMerchant(merchantId)
+    if (!item) return
+    const next = item.status === 'disabled' ? 'active' : 'disabled'
+    if (!confirm((next === 'disabled' ? '停用' : '启用') + '商家 ' + merchantId + '？')) return
+    try {
+      await callFunction('adminApi', 'merchant.setStatus', { merchantId, status: next })
+      await loadMerchants()
+    } catch (err) {
+      if (handleAuthError(err)) return
+      alert(err.message)
+    }
+  }
+
+  async function resetPassword(merchantId) {
+    if (!confirm('重置商家 ' + merchantId + ' 的网页后台密码？')) return
+    try {
+      const data = await callFunction('adminApi', 'merchant.resetPassword', { merchantId })
+      openModal(
+        '新密码（只显示这一次）',
+        '<p>登录账号：<code>' + esc(data.loginUsername) + '</code></p>' +
+          '<div class="secret-box">新密码：<strong>' + esc(data.initialPassword) + '</strong><br>请线下交付给商家；关闭后不再显示。</div>'
+      )
+      modalButton('我已记录', true, closeModal)
+    } catch (err) {
+      if (handleAuthError(err)) return
+      alert(err.message)
+    }
+  }
+
+  /* ------------------------------ 员工绑定 ------------------------------ */
+
+  async function openStaff(merchantId) {
+    const body = openModal(
+      '员工绑定 · ' + merchantId,
+      '<div id="staff-list" class="muted">加载中…</div>' +
+        '<div class="card" style="margin:12px 0 0">' +
+        '<h4 style="margin:0 0 8px">绑定新的 openid</h4>' +
+        '<label>openid<input id="s-openid" placeholder="小程序里复制的 openid" /></label>' +
+        '<label>角色<select id="s-role"><option value="staff">员工</option><option value="owner">店主</option></select></label>' +
+        '<label>备注名<input id="s-name" maxlength="20" placeholder="如 前台小王" /></label>' +
+        '<button class="btn small primary" id="s-bind" style="margin-top:8px">绑定</button>' +
+        '</div>'
+    )
+    modalButton('关闭', false, closeModal)
+
+    async function refreshStaff() {
+      try {
+        const data = await callFunction('adminApi', 'staff.list', { merchantId })
+        const list = data.list || []
+        const target = body.querySelector('#staff-list')
+        if (!list.length) {
+          target.innerHTML = '<p class="muted">未绑定员工。商家本人可用小程序里的 openid 绑定为店主。</p>'
+          return
+        }
+        target.innerHTML = list
+          .map(
+            (item) =>
+              '<div class="kv"><span><code>' + esc(item.openid) + '</code> · ' + esc(item.role === 'owner' ? '店主' : '员工') + ' · ' + esc(item.name || '未命名') + '</span>' +
+              '<button class="btn small danger" data-openid="' + esc(item.openid) + '">解绑</button></div>'
+          )
+          .join('')
+        target.querySelectorAll('button[data-openid]').forEach((btn) => {
+          btn.addEventListener('click', async () => {
+            const openid = btn.getAttribute('data-openid')
+            if (!confirm('解绑 openid ' + openid + '？')) return
+            try {
+              await callFunction('adminApi', 'staff.unbind', { merchantId, openid })
+              await refreshStaff()
+              await loadMerchants()
+            } catch (err) {
+              if (handleAuthError(err)) return
+              alert(err.message)
+            }
+          })
+        })
+      } catch (err) {
+        if (handleAuthError(err)) return
+        body.querySelector('#staff-list').innerHTML = '<span class="error-text">' + esc(err.message) + '</span>'
+      }
+    }
+
+    body.querySelector('#s-bind').addEventListener('click', async () => {
+      const openid = body.querySelector('#s-openid').value.trim()
+      if (!openid) {
+        alert('请填写 openid')
+        return
+      }
+      try {
+        await callFunction('adminApi', 'staff.bind', {
+          merchantId,
+          openid,
+          role: body.querySelector('#s-role').value,
+          name: body.querySelector('#s-name').value.trim()
+        })
+        body.querySelector('#s-openid').value = ''
+        await refreshStaff()
+        await loadMerchants()
+      } catch (err) {
+        if (handleAuthError(err)) return
+        alert(err.message)
+      }
+    })
+
+    refreshStaff()
+  }
+
+  /* ------------------------------ 健康 / 修复 / 审计 ------------------------------ */
+
+  async function loadHealth() {
+    const box = $('health-content')
+    box.innerHTML = '<p class="muted">体检中…</p>'
+    try {
+      const data = await callFunction('adminApi', 'health', {
+        merchantId: $('health-merchant-id').value.trim() || 'merchant_001'
+      })
+      renderHealth(data)
+    } catch (err) {
+      if (handleAuthError(err)) return
+      box.innerHTML = '<p class="error-text">' + esc(err.message) + '</p>'
+    }
+  }
+
+  function kv(label, value) {
+    return '<div class="kv"><span>' + esc(label) + '</span><span>' + esc(value) + '</span></div>'
+  }
+
+  function renderHealth(data) {
+    const merchant = data.merchant || {}
+    const today = data.todayMenu || {}
+    const payment = data.payment || {}
+    const errors = data.errors || {}
+    const byCode = errors.byCode || {}
+    const collections = data.collections || []
+    const missing = data.missingCollections || []
+
+    const collectionRows = collections
+      .map((item) => kv(item.name + '（' + (item.label || '') + '）', item.exists ? item.total + ' 条' : '集合不存在'))
+      .join('')
+
+    const errorRows = Object.keys(byCode).length
+      ? Object.keys(byCode).map((code) => kv(code, byCode[code] + ' 次')).join('')
+      : kv('近 24 小时错误码', '无')
+
+    $('health-content').innerHTML =
+      '<div class="health-block"><h4>总体</h4>' +
+      kv('状态', data.ok ? '正常' : '需处理') +
+      kv('服务器时间', fmtTime(data.serverTime)) +
+      kv('默认商家 ID', data.defaultMerchantId) +
+      kv('已部署云函数', (data.functions || []).join('、')) +
+      '</div>' +
+      '<div class="health-block"><h4>租户</h4>' +
+      kv('商家 ID', merchant.merchantId) +
+      kv('名称', merchant.name || '（缺失）') +
+      kv('状态', merchant.status) +
+      kv('套餐', merchant.plan || '—') +
+      kv('员工数', merchant.staffCount || 0) +
+      kv('停用下单', merchant.flags && merchant.flags.disableOrdering ? '是' : '否') +
+      kv('只允许自提', merchant.flags && merchant.flags.pickupOnly ? '是' : '否') +
+      '</div>' +
+      '<div class="health-block"><h4>今日菜单 / 支付</h4>' +
+      kv('今日菜单已发布', today.published ? '是' : '否') +
+      kv('菜单版本', today.menuVersion || '—') +
+      kv('菜单更新时间', fmtTime(today.updatedAt)) +
+      kv('发布菜单的租户数', data.todayMenuTenantCount || 0) +
+      kv('支付模式', payment.payMode || '—') +
+      '</div>' +
+      '<div class="health-block"><h4>最近错误（只统计错误码）</h4>' +
+      kv('近 24 小时失败次数', errors.last24h || 0) +
+      errorRows +
+      '</div>' +
+      '<div class="health-block"><h4>集合（' + collections.length + '）</h4>' +
+      collectionRows +
+      (missing.length ? '<p class="error-text">缺失：' + esc(missing.join('、')) + '</p>' : '') +
+      '</div>'
+  }
+
+  async function runRepair(action) {
+    const merchantId = $('repair-merchant-id').value.trim()
+    const orderId = $('repair-order-id').value.trim()
+    const payload = {}
+    if (action !== 'repair.seedDefaults' && action !== 'repair.cleanOrphans' && action !== 'repair.rebuildIndexes') {
+      if (!merchantId) {
+        alert('请填写目标商家 ID')
+        return
+      }
+      payload.merchantId = merchantId
+    }
+    if (action === 'repair.resendPaymentCallback') {
+      if (!orderId) {
+        alert('请填写订单 ID')
+        return
+      }
+      payload.orderId = orderId
+    }
+    $('repair-result').textContent = '执行中：' + action
+    try {
+      const data = await callFunction('adminApi', action, payload)
+      $('repair-result').textContent = action + '\n' + JSON.stringify(data, null, 2)
+    } catch (err) {
+      if (handleAuthError(err)) return
+      $('repair-result').textContent = action + ' 失败\n' + (err.message || err)
+    }
+  }
+
+  async function loadAudit() {
+    const tbody = $('audit-tbody')
+    tbody.innerHTML = '<tr><td colspan="6" class="muted">加载中…</td></tr>'
+    try {
+      const data = await callFunction('adminApi', 'audit.list', {
+        limit: Number($('audit-limit').value) || 50
+      })
+      const list = data.list || []
+      if (!list.length) {
+        tbody.innerHTML = '<tr><td colspan="6" class="muted">暂无审计记录</td></tr>'
+        return
+      }
+      tbody.innerHTML = list
+        .map(
+          (item) =>
+            '<tr><td>' + esc(fmtTime(item.at)) + '</td>' +
+            '<td>' + esc(item.actorName || item.actorId) + '</td>' +
+            '<td><code>' + esc(item.action) + '</code></td>' +
+            '<td class="mono">' + esc(item.merchantId || '—') + '</td>' +
+            '<td>' + (item.result === 'fail' ? '<span class="badge off">失败</span>' : '<span class="badge ok">成功</span>') + (item.code && item.code !== 'OK' ? ' ' + esc(item.code) : '') + '</td>' +
+            '<td>' + esc(item.source || '—') + '</td></tr>'
+        )
+        .join('')
+    } catch (err) {
+      if (handleAuthError(err)) return
+      tbody.innerHTML = '<tr><td colspan="6" class="error-text">' + esc(err.message) + '</td></tr>'
+    }
+  }
+
+  async function changePassword() {
+    const currentPassword = $('pw-current').value
+    const newPassword = $('pw-next').value
+    if (!currentPassword || !newPassword) {
+      alert('请填写当前密码和新密码')
+      return
+    }
+    try {
+      await callFunction('adminApi', 'admin.changePassword', { currentPassword, newPassword })
+      $('pw-current').value = ''
+      $('pw-next').value = ''
+      alert('管理员密码已更新')
+    } catch (err) {
+      if (handleAuthError(err)) return
+      alert(err.message)
+    }
+  }
+
+  /* ------------------------------ 初始化 ------------------------------ */
+
+  function switchTab(name) {
+    document.querySelectorAll('.tab').forEach((tab) => {
+      tab.classList.toggle('active', tab.getAttribute('data-tab') === name)
+    })
+    ;['merchants', 'health', 'repair', 'audit'].forEach((key) => {
+      $('tab-' + key).classList.toggle('hidden', key !== name)
+    })
+    if (name === 'health') loadHealth()
+    if (name === 'audit') loadAudit()
+  }
+
+  async function refreshAll() {
+    if (!token) return
+    await loadMerchants()
+  }
+
+  function init() {
+    $('env-id').value = localStorage.getItem(ENV_KEY) || DEFAULT_ENV
+    $('repair-merchant-id').value = 'merchant_001'
+    $('health-merchant-id').value = 'merchant_001'
+
+    $('login-form').addEventListener('submit', login)
+    $('btn-logout').addEventListener('click', logout)
+    $('btn-refresh-all').addEventListener('click', () => {
+      refreshAll()
+    })
+    $('btn-search').addEventListener('click', loadMerchants)
+    $('merchant-search').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') loadMerchants()
+    })
+    $('merchant-status-filter').addEventListener('change', loadMerchants)
+    $('btn-create-merchant').addEventListener('click', openCreateMerchant)
+    $('btn-health').addEventListener('click', loadHealth)
+    $('btn-audit').addEventListener('click', loadAudit)
+    $('btn-change-password').addEventListener('click', changePassword)
+    $('modal-close').addEventListener('click', closeModal)
+    $('modal').addEventListener('click', (e) => {
+      if (e.target === $('modal')) closeModal()
+    })
+    document.querySelectorAll('.tab').forEach((tab) => {
+      tab.addEventListener('click', () => switchTab(tab.getAttribute('data-tab')))
+    })
+    document.querySelectorAll('button[data-repair]').forEach((btn) => {
+      btn.addEventListener('click', () => runRepair(btn.getAttribute('data-repair')))
+    })
+
+    if (token) {
+      showApp()
+      refreshAll()
+    }
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init)
+  else init()
+})()
+
+</script>
+</body>
+</html>

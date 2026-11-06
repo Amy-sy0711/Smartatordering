@@ -42,16 +42,26 @@
       throw new Error('CloudBase JS SDK 未加载，请检查网络或 CDN 是否可访问')
     }
     cloudApp = cloudbase.init({ env })
-    const auth = cloudApp.auth({ persistence: 'session' })
+    // CloudBase JS SDK 2.x 标准匿名登录：先 auth，再 anonymousAuthProvider().signIn()
+    const auth = cloudApp.auth({ persistence: 'local' })
     try {
-      if (typeof auth.signInAnonymously === 'function') {
+      if (auth && typeof auth.anonymousAuthProvider === 'function') {
+        await auth.anonymousAuthProvider().signIn()
+      } else if (typeof auth.signInAnonymously === 'function') {
+        // 兼容旧版 SDK
         await auth.signInAnonymously()
       } else if (typeof auth.anonymousAuth === 'function') {
         await auth.anonymousAuth()
+      } else {
+        throw new Error('当前 CloudBase SDK 不支持匿名登录 API')
+      }
+      if (auth && typeof auth.getLoginState === 'function') {
+        const state = await auth.getLoginState()
+        if (!state) throw new Error('匿名登录后未取得登录态')
       }
     } catch (err) {
-      // 匿名登录可能已存在或未开启；后续 callFunction 会给出明确错误
-      console.warn('[admin] 匿名登录', err)
+      // 匿名登录失败时仍继续，callFunction 会返回明确的权限错误，便于页面上提示
+      console.warn('[admin] 匿名登录失败', err)
     }
     setConn('已连接 ' + env)
     return cloudApp
