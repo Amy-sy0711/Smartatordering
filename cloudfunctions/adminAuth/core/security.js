@@ -9,7 +9,8 @@ function tokenSecret() {
   const secret = String(process.env.ADMIN_TOKEN_SECRET || '')
   if (secret.length < 16) {
     const err = new Error('服务端未配置 ADMIN_TOKEN_SECRET（至少 16 位），请在云函数环境变量中设置')
-    err.code = 'ADMIN_TOKEN_SECRET_MISSING'
+    err.code = 'TOKEN_SECRET_MISSING'
+    err.hint = '云开发控制台 → 云函数 → adminAuth / adminApi → 环境变量，各新增 ADMIN_TOKEN_SECRET（≥16 位，两处一致）；保存后重新部署。'
     throw err
   }
   return secret

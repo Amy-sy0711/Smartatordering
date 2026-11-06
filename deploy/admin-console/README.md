@@ -53,20 +53,29 @@
 
 ## 首次管理员登录
 
-1. 确认 `adminAuth` / `adminApi` 已部署。
-2. 在云函数环境变量中设置：
-   - `ADMIN_TOKEN_SECRET`（至少 16 位随机串）
-   - `ADMIN_BOOTSTRAP_PASSWORD`（首次创建管理员用，创建成功后失效）
-3. 打开页面，环境 ID 已预填 `ordering-d0gyct6z1ff2afebd`。
-4. 用户名可自定义（建议先用 `admin`），密码填 `ADMIN_BOOTSTRAP_PASSWORD` 的值。
-5. 登录成功后系统自动创建第一个管理员；之后请到「修复工具 → 修改管理员密码」设置正式密码，并删除环境变量 `ADMIN_BOOTSTRAP_PASSWORD`。
+1. 确认 `adminAuth` / `adminApi` 已部署为最新版本。
+2. 在云函数环境变量中设置（`adminAuth`、`adminApi` 都要配）：
+   - `ADMIN_TOKEN_SECRET`（至少 16 位随机串，两个函数用同一个值）
+   - `ADMIN_BOOTSTRAP_PASSWORD`（首次创建管理员用，创建成功后建议删除）
+3. **改完环境变量后必须重新部署云函数**（右键函数 → 上传并部署：云端安装依赖），否则运行实例可能仍读不到新变量。
+4. 打开页面，环境 ID 已预填 `ordering-d0gyct6z1ff2afebd`；首屏「环境自检」会显示云函数可达 / 匿名登录态 / `admins` 集合 / 管理员数量 / 两个环境变量是否存在，失败项直接给修法。
+5. 用户名建议填 `admin`，密码填 `ADMIN_BOOTSTRAP_PASSWORD` 的值。
+6. `admins` 集合不存在时，云函数会在首次初始化时自动创建；已有管理员时返回 `ALREADY_INITIALIZED`，请用已有账号登录。
+7. 登录成功后到「修复工具 → 修改管理员密码」设置正式密码，并删除环境变量 `ADMIN_BOOTSTRAP_PASSWORD`。
 
 ## 常见错误
 
-| 现象 | 原因 | 处理 |
+登录失败时页面会原样显示 `code · message` 和 `hint`，并提供「复制错误信息」按钮；对照下表处理。
+
+| 现象 / code | 原因 | 处理 |
 | --- | --- | --- |
-| `CloudBase JS SDK 未加载` | CDN 被拦截/断网 | 换网络或把 SDK 下载到本地同目录并改 `index.html` 引用 |
-| 登录报 `UNAUTHORIZED` / `TOKEN_INVALID` | `ADMIN_TOKEN_SECRET` 未配置或已轮换 | 检查 `adminAuth`、`adminApi` 两个函数的环境变量 |
-| 登录报匿名相关错误 | 未开启匿名登录 | 按上文「登录方式」开启 |
-| 浏览器 CORS / 域名错误 | Web 安全域名未加 | 按上文添加域名，保存后刷新 |
-| `BOOTSTRAP_DISABLED` | `admins` 已有数据且用户名不存在 | 用已有管理员账号登录；或先在数据库确认 `admins` 记录 |
+| `CloudBase JS SDK 未加载` | CDN 被拦截/断网 | 换网络，或把 SDK 下载到本地同目录并改 `index.html` 引用 |
+| `ANONYMOUS_REQUIRED` / 「客户端匿名登录失败」 | 未开启匿名登录，或域名不在 Web 安全域名 | 开启匿名登录；设置 → 安全配置 → Web 安全域名（只填域名） |
+| `ADMINS_COLLECTION_MISSING` | `admins` 集合不存在且没配初始口令 | 配置 `ADMIN_BOOTSTRAP_PASSWORD` 后重新部署；或控制台手动建集合 |
+| `ENV_MISSING` | `admins` 为空且未配 `ADMIN_BOOTSTRAP_PASSWORD` | 云函数 `adminAuth` 环境变量新增该项，重新部署 |
+| `TOKEN_SECRET_MISSING` | `ADMIN_TOKEN_SECRET` 未配置或不足 16 位 | `adminAuth`、`adminApi` 各配同一个 ≥16 位随机串，重新部署 |
+| `INVALID_CREDENTIALS` | 首次密码与初始口令不一致；或已有账号密码错 | 核对环境变量（不要带空格/引号）；已有账号用原密码 |
+| `ALREADY_INITIALIZED` | 已有管理员但用户名没匹配到（不是密码错） | 用已有管理员登录；确需重置：删除 `admins` 全部记录后重新部署 |
+| `UNAUTHORIZED` / `TOKEN_INVALID` | token 过期、密钥轮换 | 重新登录；确认两个函数的 `ADMIN_TOKEN_SECRET` 一致 |
+| `CALL_FUNCTION_FAILED` | 云函数未部署 / 环境 ID 不对 / 域名未加白 | 检查自检面板，逐项修复 |
+| 浏览器 CORS 报错 | Web 安全域名未加 | 添加域名后刷新 |

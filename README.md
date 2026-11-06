@@ -421,9 +421,27 @@ node tests/static-check.js    # JS 语法、JSON、页面、组件、集合、�
 | 顾客端看不到新菜 | 菜品只加进「菜品库」，未加入今日菜单；菜单缓存未失效 | 商家后台菜单页勾选并发布今日菜单；保存后会自动刷新缓存与菜单版本 |
 | 「剩undefined」 | 旧时段数据缺 `limit` 或字段名不一致 | 新版 `readSlots` 已兜底；建议在商家后台重新保存取餐时段 |
 | 商家登录 401 / `TOKEN_INVALID` | `MERCHANT_TOKEN_SECRET` 未设置、token 过期、被吊销 | 检查 env 变量；重新登录；管理台「吊销令牌」后需重新登录 |
-| 管理员登录失败 | `ADMIN_BOOTSTRAP_PASSWORD` 已失效、密码错误 | 用已创建账号登录；忘记密码可在云端数据库手动重置 `passwordHash`（需重新生成 scrypt 哈希） |
+| 管理员登录失败 | `admins` 集合不存在、环境变量未生效、密码错误 | 先看管理台首屏「环境自检」，再按 15.1 的登录排障表逐项处理 |
 | 管理台跨域 / 匿名登录失败 | 未把控制台域名加入 Web 安全域名 | 云开发控制台 → 环境 → 安全配置 → Web 安全域名 |
 | 商家停用后仍能下单 | 旧订单/缓存 | 服务端已校验 `merchants.status`；刷新页面后重试 |
+
+### 15.1 管理台登录失败排障（`adminAuth`）
+
+管理台首屏有「环境自检」面板（云函数可达 / 匿名登录态 / `admins` 集合 / 管理员数量 / 两个环境变量是否存在），失败项直接显示修法；登录失败会原样显示 `code · message` 和 `hint`，可点「复制错误信息」。
+
+| 现象 / 错误码 | 原因 | 修法 |
+| --- | --- | --- |
+| `INTERNAL_ERROR`，日志含 `-502005 collection not exists` | 云开发不会自动建集合，`admins` 不存在时 `count()` 直接抛错，旧版把它吞成通用错误 | 最新版 `adminAuth` 在首次初始化时会自动建集合；若仍失败，控制台 → 数据库 → 新建集合 `admins` |
+| `ADMINS_COLLECTION_MISSING` | 集合不存在，且没配初始口令，无法自动创建 | 配置 `ADMIN_BOOTSTRAP_PASSWORD` 后重新部署；或手动建集合 |
+| `ENV_MISSING` | `admins` 为空且未配 `ADMIN_BOOTSTRAP_PASSWORD` | 云开发控制台 → 云函数 → `adminAuth` → 环境变量，新增该项 |
+| `TOKEN_SECRET_MISSING` | 未配 `ADMIN_TOKEN_SECRET` 或长度 < 16，密码正确也签不出 token（旧版会先写库再失败，留下无法登录的管理员） | `adminAuth` 与 `adminApi` 都配同一个 ≥16 位随机串；新版会先校验密钥再写库 |
+| `INVALID_CREDENTIALS` | 首次初始化时密码与 `ADMIN_BOOTSTRAP_PASSWORD` 不一致；或已有账号密码错 | 核对环境变量值（不要带空格/引号）；已有账号请输入原密码 |
+| `ALREADY_INITIALIZED` | `admins` 已有记录，但输入的用户名没有匹配到（不是密码错） | 用已有管理员账号登录；确需重置：控制台删除 `admins` 全部记录 → 重新部署 → 用初始口令创建 |
+| `ANONYMOUS_REQUIRED` / 页面显示「客户端匿名登录失败」 | 未开启匿名登录，或当前域名不在 Web 安全域名 | 设置 → 登录方式 → 匿名登录；设置 → 安全配置 → Web 安全域名（只填域名，不带路径） |
+| 页面只有「登录失败」四个字 | 旧前端把 SDK reject 对象的 `message` 取空后用了兜底文案 | 换用最新 `deploy/admin-console/` 或 `deploy/admin-console-standalone.html` |
+| 自检全绿但仍登录失败 | 用户名/密码确实不对，或云端跑的还是旧版云函数 | 点「复制错误信息」看具体 code；对 `adminAuth` 重新部署 |
+
+**改环境变量后必须重新部署云函数**：在云开发控制台改完「环境变量」后，对 `adminAuth`（涉及 token 的还有 `adminApi`）执行一次「上传并部署：云端安装依赖」，确保新变量注入运行实例；否则可能仍跑在旧实例上读不到 `ADMIN_BOOTSTRAP_PASSWORD` / `ADMIN_TOKEN_SECRET`。
 
 ## 16. 已知限制
 

@@ -70,6 +70,28 @@ h3 { margin: 0; font-size: 16px; }
 .muted { color: var(--muted); font-size: 12.5px; line-height: 1.6; }
 .note { margin-top: 10px; }
 .error-text { color: var(--danger); min-height: 18px; margin: 8px 0 0; }
+.error-hint {
+  margin: 4px 0 8px;
+  padding: 8px 10px;
+  border-left: 3px solid var(--warn);
+  background: #fff8ec;
+  color: #7a4a10;
+  font-size: 12.5px;
+  line-height: 1.65;
+  border-radius: 0 8px 8px 0;
+}
+
+.precheck { margin-top: 16px; padding-top: 14px; border-top: 1px dashed var(--line); }
+.precheck-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.precheck-list { display: grid; gap: 6px; }
+.check-item { border: 1px solid var(--line); border-radius: 9px; padding: 8px 10px; background: #fbfcfe; font-size: 12.5px; }
+.check-item.bad { border-color: #f3c6c6; background: #fffafa; }
+.check-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.check-flag { width: 16px; text-align: center; font-weight: 700; color: var(--ok); }
+.check-item.bad .check-flag { color: var(--danger); }
+.check-label { font-weight: 600; color: #334155; }
+.check-detail { color: var(--muted); }
+.check-hint { margin-top: 4px; padding-left: 24px; color: #7a4a10; line-height: 1.6; }
 .hidden { display: none !important; }
 
 .form-grid { display: grid; gap: 12px; }

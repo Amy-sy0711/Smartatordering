@@ -9,6 +9,8 @@
   let token = sessionStorage.getItem(TOKEN_KEY) || ''
   let adminName = ''
   let merchantsCache = []
+  let anonState = { ok: false, error: '尚未初始化' }
+  let lastErrorText = ''
 
   function $(id) {
     return document.getElementById(id)
@@ -32,6 +34,13 @@
   function setConn(text) {
     const el = $('conn-status')
     if (el) el.textContent = text
+  }
+
+  /** 云开发 SDK 抛出的不一定是 Error，errMsg / message 都要兼容 */
+  function errText(err) {
+    if (!err) return '未知错误'
+    if (typeof err === 'string') return err
+    return String(err.errMsg || err.errMessage || err.message || '未知错误')
   }
 
   async function ensureApp() {
@@ -59,8 +68,10 @@
         const state = await auth.getLoginState()
         if (!state) throw new Error('匿名登录后未取得登录态')
       }
+      anonState = { ok: true, error: '' }
     } catch (err) {
-      // 匿名登录失败时仍继续，callFunction 会返回明确的权限错误，便于页面上提示
+      // 不吞掉：记录失败原因，登录失败时原样展示给用户，并在自检面板里给出修法
+      anonState = { ok: false, error: errText(err) }
       console.warn('[admin] 匿名登录失败', err)
     }
     setConn('已连接 ' + env)
@@ -71,11 +82,20 @@
     await ensureApp()
     const body = { action, payload: Object.assign({}, payload || {}) }
     if (withToken !== false) body.payload.token = token
-    const res = await cloudApp.callFunction({ name, data: body })
+    let res = null
+    try {
+      res = await cloudApp.callFunction({ name, data: body })
+    } catch (err) {
+      const e = new Error(errText(err) || '云函数调用失败')
+      e.code = 'CALL_FUNCTION_FAILED'
+      e.hint = '请确认：1) 云函数 ' + name + ' 已部署到当前环境；2) 环境 ID 正确；3) 本页面域名已加入云开发「Web 安全域名」并已开启匿名登录。'
+      throw e
+    }
     const result = (res && res.result) || {}
     if (result.code !== 0) {
-      const err = new Error(result.message || '接口失败：' + result.code)
-      err.code = result.code
+      const err = new Error(result.message || ('接口失败：' + result.code))
+      err.code = result.code || 'UNKNOWN_RESULT'
+      err.hint = result.hint || ''
       throw err
     }
     return result.data
@@ -83,24 +103,77 @@
 
   /* ------------------------------ 登录 / 会话 ------------------------------ */
 
+  function clearLoginError() {
+    const box = $('login-error-box')
+    if (box) box.classList.add('hidden')
+    lastErrorText = ''
+  }
+
+  /** 原样展示 code + message + hint，并保留可复制的纯文本 */
+  function showLoginError(err) {
+    const code = String((err && err.code) || 'UNKNOWN')
+    const message = String((err && err.message) || '登录失败')
+    const hint = String((err && err.hint) || '')
+    lastErrorText = code + ': ' + message + (hint ? '\n修法：' + hint : '')
+    $('login-error').textContent = code + ' · ' + message
+    const hintEl = $('login-error-hint')
+    hintEl.textContent = hint
+    hintEl.classList.toggle('hidden', !hint)
+    $('login-error-box').classList.remove('hidden')
+    // 匿名登录没成功时，登录错误里补上客户端侧的真实原因
+    if (!anonState.ok && anonState.error) {
+      $('login-error-hint').textContent = (hint ? hint + '\n' : '') + '客户端匿名登录失败：' + anonState.error
+      lastErrorText += '\n客户端匿名登录失败：' + anonState.error
+    }
+  }
+
+  function copyText(text) {
+    if (!text) return Promise.resolve(false)
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+      return navigator.clipboard.writeText(text).then(() => true).catch(() => false)
+    }
+    try {
+      const area = document.createElement('textarea')
+      area.value = text
+      area.style.position = 'fixed'
+      area.style.opacity = '0'
+      document.body.appendChild(area)
+      area.select()
+      const okCopy = document.execCommand('copy')
+      document.body.removeChild(area)
+      return Promise.resolve(okCopy)
+    } catch (err) {
+      return Promise.resolve(false)
+    }
+  }
+
+  async function copyLoginError() {
+    const okCopy = await copyText(lastErrorText)
+    const btn = $('btn-copy-error')
+    if (!btn) return
+    const old = btn.textContent
+    btn.textContent = okCopy ? '已复制' : '复制失败，请手动选中'
+    setTimeout(() => { btn.textContent = old }, 1800)
+  }
+
   async function login(event) {
     if (event) event.preventDefault()
-    $('login-error').textContent = ''
+    clearLoginError()
     const username = $('login-username').value.trim()
     const password = $('login-password').value
     if (!username || !password) {
-      $('login-error').textContent = '请输入用户名和密码'
+      showLoginError({ code: 'PASSWORD_REQUIRED', message: '请输入用户名和密码', hint: '首次登录的密码就是 ADMIN_BOOTSTRAP_PASSWORD 的值。' })
       return
     }
     try {
-      const data = await callFunction('adminAuth', 'login', { username, password }, false)
+      const data = await callFunction('adminAuth', 'login', { username: username, password: password }, false)
       token = data.token
       adminName = (data.admin && data.admin.username) || username
       sessionStorage.setItem(TOKEN_KEY, token)
       showApp()
       await refreshAll()
     } catch (err) {
-      $('login-error').textContent = err.message || '登录失败'
+      showLoginError(err)
     }
   }
 
@@ -123,10 +196,72 @@
     const code = err && err.code
     if (code === 'UNAUTHORIZED' || code === 'TOKEN_EXPIRED' || code === 'TOKEN_FORGED' || code === 'TOKEN_INVALID') {
       logout()
-      $('login-error').textContent = (err && err.message) || '登录已失效，请重新登录'
+      showLoginError(err)
       return true
     }
     return false
+  }
+
+  /* ------------------------------ 首屏自检 ------------------------------ */
+
+  async function runPrecheck() {
+    const box = $('precheck-list')
+    if (!box) return
+    box.innerHTML = '<p class="muted">检测中…</p>'
+    try {
+      const data = await callFunction('adminAuth', 'precheck', {}, false)
+      renderPrecheck(data)
+    } catch (err) {
+      box.innerHTML =
+        '<div class="check-item bad">' +
+        '<div class="check-line"><span class="check-flag">✕</span><span class="check-label">自检接口不可用</span>' +
+        '<span class="check-detail">' + esc(String((err && err.code) || '')) + ' ' + esc(String((err && err.message) || '')) + '</span></div>' +
+        (err && err.hint ? '<div class="check-hint">' + esc(err.hint) + '</div>' : '') +
+        (anonState.ok ? '' : '<div class="check-hint">客户端匿名登录失败：' + esc(anonState.error) + '</div>') +
+        '</div>'
+      setConn('自检失败')
+    }
+  }
+
+  function renderPrecheck(data) {
+    const box = $('precheck-list')
+    const checks = (data && data.checks) || []
+    if (!checks.length) {
+      box.innerHTML = '<p class="muted">自检未返回结果</p>'
+      setConn('自检无结果')
+      return
+    }
+    box.innerHTML = checks
+      .map((item) => {
+        const bad = !item.ok
+        return (
+          '<div class="check-item' + (bad ? ' bad' : '') + '">' +
+          '<div class="check-line">' +
+          '<span class="check-flag">' + (bad ? '✕' : '✓') + '</span>' +
+          '<span class="check-label">' + esc(item.label) + '</span>' +
+          '<span class="check-detail">' + esc(item.detail) + '</span>' +
+          '</div>' +
+          (bad && item.hint ? '<div class="check-hint">' + esc(item.hint) + '</div>' : '') +
+          '</div>'
+        )
+      })
+      .join('')
+
+    const failed = checks.filter((item) => !item.ok)
+    if (!failed.length) {
+      setConn('自检通过')
+      return
+    }
+    setConn('自检发现 ' + failed.length + ' 项待处理')
+    // 客户端匿名登录本身失败时，把真实原因也列出来（服务端检测不到时也能定位）
+    if (!anonState.ok && anonState.error) {
+      box.innerHTML +=
+        '<div class="check-item bad">' +
+        '<div class="check-line"><span class="check-flag">✕</span><span class="check-label">客户端匿名登录</span>' +
+        '<span class="check-detail">' + esc(anonState.error) + '</span></div>' +
+        '<div class="check-hint">云开发控制台 → 设置 → 登录方式 → 开启匿名登录，并把当前页面域名加入 Web 安全域名。</div>' +
+        '</div>'
+    }
   }
 
   /* ------------------------------ 商家列表 ------------------------------ */
@@ -578,6 +713,8 @@
     $('health-merchant-id').value = 'merchant_001'
 
     $('login-form').addEventListener('submit', login)
+    $('btn-precheck').addEventListener('click', runPrecheck)
+    $('btn-copy-error').addEventListener('click', copyLoginError)
     $('btn-logout').addEventListener('click', logout)
     $('btn-refresh-all').addEventListener('click', () => {
       refreshAll()
@@ -606,6 +743,9 @@
       showApp()
       refreshAll()
     }
+
+    // 首屏自检：不管有没有 token 都跑，失败项直接给修法
+    runPrecheck()
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init)

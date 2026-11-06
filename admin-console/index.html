@@ -25,11 +25,25 @@
       <h2>管理员登录</h2>
       <p class="muted">账号来自云函数环境变量 <code>ADMIN_BOOTSTRAP_PASSWORD</code> 首次创建，或已有管理员。</p>
       <form id="login-form" class="form-grid">
-        <label>用户名<input id="login-username" autocomplete="username" required /></label>
+        <label>用户名<input id="login-username" placeholder="首次建议填 admin" autocomplete="username" required /></label>
         <label>密码<input id="login-password" type="password" autocomplete="current-password" required /></label>
         <button class="btn primary" type="submit">登录</button>
       </form>
-      <p id="login-error" class="error-text"></p>
+      <div id="login-error-box" class="hidden">
+        <p id="login-error" class="error-text"></p>
+        <p id="login-error-hint" class="error-hint"></p>
+        <button type="button" class="btn small" id="btn-copy-error">复制错误信息</button>
+      </div>
+
+      <div class="precheck">
+        <div class="precheck-head">
+          <h3>环境自检</h3>
+          <button type="button" class="btn small" id="btn-precheck">重新检测</button>
+        </div>
+        <div id="precheck-list" class="precheck-list">
+          <p class="muted">检测中…</p>
+        </div>
+      </div>
     </section>
 
     <section id="app-panel" class="hidden">

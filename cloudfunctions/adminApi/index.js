@@ -658,7 +658,13 @@ exports.main = async (event) => {
   try {
     admin = authorize(event)
   } catch (err) {
-    return { code: err.code || 'UNAUTHORIZED', message: err.message || '请先登录管理员账号' }
+    return {
+      code: err.code || 'UNAUTHORIZED',
+      message: err.message || '请先登录管理员账号',
+      hint: err.hint || (err.code === 'TOKEN_SECRET_MISSING'
+        ? '云开发控制台 → 云函数 → adminApi → 环境变量新增 ADMIN_TOKEN_SECRET（≥16 位，与 adminAuth 一致），保存后重新部署。'
+        : '')
+    }
   }
 
   const action = String((event && event.action) || '')

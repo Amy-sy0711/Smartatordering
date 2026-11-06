@@ -34,6 +34,7 @@ const exportCore = require(path.join(CORE, 'export'))
 const merchantToken = require(path.join(CORE, 'merchant-token'))
 const adminPolicy = require(path.join(ROOT, 'cloudfunctions', 'adminApi', 'core', 'policy'))
 const adminAudit = require(path.join(ROOT, 'cloudfunctions', 'adminApi', 'core', 'audit'))
+const adminAuthCore = require(path.join(ROOT, 'cloudfunctions', 'adminAuth', 'core', 'auth-core'))
 
 let passed = 0
 let failed = 0
@@ -984,6 +985,128 @@ test('合法 token 可校验；过期与伪造 token 被拒绝', () => {
   const forged = parts[0] + '.' + parts[1].replace(/^./, (c) => (c === 'a' ? 'b' : 'a'))
   assert.strictEqual(merchantToken.verifyMerchantToken(forged).code, 'TOKEN_FORGED')
   assert.strictEqual(merchantToken.verifyMerchantToken('bad-token').code, 'TOKEN_INVALID')
+})
+
+console.log('\n[管理台登录：错误码与首次初始化]')
+
+test('错误码映射：关键 code 都有 message + hint', () => {
+  const required = [
+    'ENV_MISSING',
+    'ADMINS_COLLECTION_MISSING',
+    'ALREADY_INITIALIZED',
+    'INVALID_CREDENTIALS',
+    'TOKEN_SECRET_MISSING',
+    'ANONYMOUS_REQUIRED'
+  ]
+  for (const code of required) {
+    const mapped = adminAuthCore.fail(code)
+    assert.strictEqual(mapped.code, code)
+    assert.ok(mapped.message && mapped.message.length > 0, code + ' 缺少 message')
+    assert.ok(mapped.hint && mapped.hint.length > 0, code + ' 缺少 hint')
+  }
+})
+
+test('集合不存在 + 有初始口令 → 走 bootstrap 并自动建集合', () => {
+  const plan = adminAuthCore.planLogin({
+    collectionExists: false,
+    adminTotal: 0,
+    adminFound: false,
+    tokenSecretOk: true,
+    hasBootstrap: true,
+    bootstrapMatches: true
+  })
+  assert.strictEqual(plan.ok, true)
+  assert.strictEqual(plan.mode, 'bootstrap')
+  assert.strictEqual(plan.createCollection, true)
+})
+
+test('集合不存在 + 无初始口令 → ADMINS_COLLECTION_MISSING', () => {
+  const plan = adminAuthCore.planLogin({
+    collectionExists: false,
+    tokenSecretOk: true,
+    hasBootstrap: false,
+    bootstrapMatches: false
+  })
+  assert.strictEqual(plan.ok, false)
+  assert.strictEqual(plan.code, 'ADMINS_COLLECTION_MISSING')
+})
+
+test('已存在管理员时再走初始化 → ALREADY_INITIALIZED，不报成密码错', () => {
+  const plan = adminAuthCore.planLogin({
+    collectionExists: true,
+    adminTotal: 2,
+    adminFound: false,
+    tokenSecretOk: true,
+    hasBootstrap: true,
+    bootstrapMatches: true
+  })
+  assert.strictEqual(plan.ok, false)
+  assert.strictEqual(plan.code, 'ALREADY_INITIALIZED')
+  assert.ok(plan.message.indexOf('2') >= 0, '提示里应带已有管理员数量')
+})
+
+test('TOKEN_SECRET_MISSING 优先于任何写库动作', () => {
+  const missing = adminAuthCore.planLogin({
+    tokenSecretOk: false,
+    collectionExists: false,
+    hasBootstrap: true,
+    bootstrapMatches: true
+  })
+  assert.strictEqual(missing.ok, false)
+  assert.strictEqual(missing.code, 'TOKEN_SECRET_MISSING')
+  assert.strictEqual(missing.code === 'TOKEN_SECRET_MISSING' && !missing.mode, true, '密钥缺失时不得返回 bootstrap')
+})
+
+test('空集合 + 未配置初始口令 → ENV_MISSING；初始口令不一致 → INVALID_CREDENTIALS', () => {
+  const noEnv = adminAuthCore.planLogin({
+    collectionExists: true,
+    adminTotal: 0,
+    adminFound: false,
+    tokenSecretOk: true,
+    hasBootstrap: false,
+    bootstrapMatches: false
+  })
+  assert.strictEqual(noEnv.code, 'ENV_MISSING')
+
+  const wrongPassword = adminAuthCore.planLogin({
+    collectionExists: true,
+    adminTotal: 0,
+    adminFound: false,
+    tokenSecretOk: true,
+    hasBootstrap: true,
+    bootstrapMatches: false
+  })
+  assert.strictEqual(wrongPassword.code, 'INVALID_CREDENTIALS')
+
+  const badLogin = adminAuthCore.planLogin({
+    collectionExists: true,
+    adminTotal: 1,
+    adminFound: true,
+    passwordMatches: false,
+    tokenSecretOk: true,
+    hasBootstrap: true,
+    bootstrapMatches: false
+  })
+  assert.strictEqual(badLogin.code, 'INVALID_CREDENTIALS')
+})
+
+test('集合缺失识别：-502005 视为缺失，权限错误不误判为缺失', () => {
+  assert.strictEqual(adminAuthCore.isCollectionMissing({ errCode: -502005 }), true)
+  assert.strictEqual(adminAuthCore.isCollectionMissing({ errMsg: 'database collection not exists' }), true)
+  assert.strictEqual(adminAuthCore.isCollectionMissing({ errCode: -501001, errMsg: 'permission denied' }), false)
+  assert.strictEqual(adminAuthCore.isCollectionMissing(null), false)
+})
+
+test('集合查询遇到权限错误 → INTERNAL_ERROR，不进入 bootstrap', () => {
+  const plan = adminAuthCore.planLogin({
+    collectionErrorText: 'permission denied',
+    tokenSecretOk: true,
+    collectionExists: false,
+    hasBootstrap: true,
+    bootstrapMatches: true
+  })
+  assert.strictEqual(plan.ok, false)
+  assert.strictEqual(plan.code, 'INTERNAL_ERROR')
 })
 
 console.log('\n[平台运营后台：禁止业务明细]')
