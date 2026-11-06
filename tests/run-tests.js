@@ -35,6 +35,7 @@ const merchantToken = require(path.join(CORE, 'merchant-token'))
 const adminPolicy = require(path.join(ROOT, 'cloudfunctions', 'adminApi', 'core', 'policy'))
 const adminAudit = require(path.join(ROOT, 'cloudfunctions', 'adminApi', 'core', 'audit'))
 const adminAuthCore = require(path.join(ROOT, 'cloudfunctions', 'adminAuth', 'core', 'auth-core'))
+const loginStateFactory = require(path.join(ROOT, 'admin-console', 'login-state'))
 
 let passed = 0
 let failed = 0
@@ -1107,6 +1108,35 @@ test('集合查询遇到权限错误 → INTERNAL_ERROR，不进入 bootstrap', 
   })
   assert.strictEqual(plan.ok, false)
   assert.strictEqual(plan.code, 'INTERNAL_ERROR')
+})
+
+console.log('\n[管理台登录按钮状态机]')
+
+test('状态机：idle → loading → success → idle', () => {
+  const states = []
+  const sm = loginStateFactory.create(function (state) {
+    states.push(state)
+  })
+  assert.strictEqual(sm.getState(), 'idle')
+  assert.strictEqual(sm.start(), true)
+  assert.strictEqual(sm.getState(), 'loading')
+  assert.strictEqual(sm.isBusy(), true)
+  assert.strictEqual(sm.succeed(), true)
+  assert.strictEqual(sm.getState(), 'idle')
+  assert.strictEqual(sm.isBusy(), false)
+  assert.deepStrictEqual(states, ['loading', 'success', 'idle'])
+  assert.strictEqual(sm.getLastResult(), 'success')
+})
+
+test('状态机：loading 中重复点击被忽略；失败 loading → error → idle', () => {
+  const sm = loginStateFactory.create()
+  assert.strictEqual(sm.start(), true)
+  assert.strictEqual(sm.start(), false, 'loading 期间重复点击必须被忽略')
+  assert.strictEqual(sm.fail(), true)
+  assert.strictEqual(sm.getState(), 'idle')
+  assert.strictEqual(sm.getLastResult(), 'error')
+  assert.strictEqual(sm.fail(), false, '非 loading 状态不允许再次 fail')
+  assert.strictEqual(sm.reset(), true)
 })
 
 console.log('\n[平台运营后台：禁止业务明细]')

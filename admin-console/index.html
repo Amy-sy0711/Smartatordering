@@ -20,14 +20,24 @@
     </div>
   </header>
 
+  <div id="page-banner" class="page-banner hidden"></div>
+
   <main class="wrap">
     <section id="login-panel" class="card login-card">
       <h2>管理员登录</h2>
       <p class="muted">账号来自云函数环境变量 <code>ADMIN_BOOTSTRAP_PASSWORD</code> 首次创建，或已有管理员。</p>
+      <div class="origin-row">
+        <span>当前域名：<code id="origin-text">—</code></span>
+        <button type="button" class="btn small" id="btn-copy-origin">复制当前域名</button>
+      </div>
+      <p id="preflight-text" class="muted preflight-text">正在探测云开发环境…</p>
       <form id="login-form" class="form-grid">
         <label>用户名<input id="login-username" placeholder="首次建议填 admin" autocomplete="username" required /></label>
         <label>密码<input id="login-password" type="password" autocomplete="current-password" required /></label>
-        <button class="btn primary" type="submit">登录</button>
+        <button class="btn primary" type="submit" id="btn-login">
+          <span class="spinner hidden" id="login-spinner"></span>
+          <span id="login-btn-text">登录</span>
+        </button>
       </form>
       <div id="login-error-box" class="hidden">
         <p id="login-error" class="error-text"></p>
@@ -176,7 +186,49 @@
     </div>
   </div>
 
-  <script src="https://static.cloudbase.net/cloudbase-js-sdk/2.17.5/cloudbase.full.js"></script>
+  <div id="global-error" class="global-error hidden">
+    <h4>页面错误（可复制给运维排查）</h4>
+    <pre id="global-error-text"></pre>
+    <button type="button" class="btn small" id="btn-copy-global-error">复制页面错误</button>
+  </div>
+
+  <script>
+    (function () {
+      window.__SDK_LOAD_FAILED = false
+      window.__pageErrors = []
+      window.__reportPageError = function (text) {
+        var message = String(text || '未知错误')
+        window.__pageErrors.push(message)
+        var box = document.getElementById('global-error')
+        var pre = document.getElementById('global-error-text')
+        if (!box || !pre) return
+        pre.textContent = window.__pageErrors.join('\n\n')
+        box.classList.remove('hidden')
+      }
+      window.addEventListener('error', function (event) {
+        var target = event && event.target
+        if (target && (target.tagName === 'SCRIPT' || target.tagName === 'LINK')) {
+          window.__reportPageError('资源加载失败：' + (target.src || target.href || '未知资源'))
+          return
+        }
+        var msg = (event && event.message) || '脚本错误'
+        var file = (event && event.filename) || ''
+        var line = (event && event.lineno) || 0
+        var col = (event && event.colno) || 0
+        window.__reportPageError('脚本错误：' + msg + (file ? '\n文件：' + file + '\n行号：' + line + ':' + col : ''))
+      }, true)
+      window.addEventListener('unhandledrejection', function (event) {
+        var reason = event && event.reason
+        var text = (reason && (reason.message || reason.errMsg)) || String(reason || '未知原因')
+        window.__reportPageError('未处理的 Promise 拒绝：' + text)
+      })
+    })()
+  </script>
+  <script
+    src="./vendor/cloudbase.full.js"
+    onerror="window.__SDK_LOAD_FAILED = true; window.__reportPageError && window.__reportPageError('SDK 加载失败：vendor/cloudbase.full.js 未找到或无法读取')"
+  ></script>
+  <script src="login-state.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

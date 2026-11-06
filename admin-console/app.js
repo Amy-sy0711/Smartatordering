@@ -11,6 +11,25 @@
   let merchantsCache = []
   let anonState = { ok: false, error: '尚未初始化' }
   let lastErrorText = ''
+  let loginState = null
+
+  function makeErr(code, message, hint) {
+    const err = new Error(String(message || '操作失败'))
+    err.code = code || 'UNKNOWN'
+    err.hint = hint || ''
+    return err
+  }
+
+  function reportPageError(text) {
+    if (typeof window.__reportPageError === 'function') window.__reportPageError(text)
+  }
+
+  function showBanner(text) {
+    const el = $('page-banner')
+    if (!el) return
+    el.textContent = text
+    el.classList.remove('hidden')
+  }
 
   function $(id) {
     return document.getElementById(id)
@@ -43,12 +62,55 @@
     return String(err.errMsg || err.errMessage || err.message || '未知错误')
   }
 
+  function httpStatusOf(err) {
+    const e = err || {}
+    return Number(e.status || e.statusCode || (e.response && e.response.status) || 0) || 0
+  }
+
+  function requestUrlOf(err) {
+    const e = err || {}
+    if (e.url) return String(e.url)
+    if (e.requestUrl) return String(e.requestUrl)
+    if (e.config && e.config.url) return String(e.config.url)
+    if (e.request && e.request.url) return String(e.request.url)
+    if (e.response && e.response.url) return String(e.response.url)
+    return ''
+  }
+
+  /** 匿名登录失败的完整现场：code / HTTP / errMsg / 请求 URL，一个都不吞 */
+  function anonErrorDetail(err) {
+    const parts = []
+    if (err && err.code) parts.push('code=' + err.code)
+    const status = httpStatusOf(err)
+    if (status) parts.push('HTTP=' + status)
+    parts.push('errMsg=' + errText(err))
+    const url = requestUrlOf(err)
+    if (url) parts.push('URL=' + url)
+    return parts.join(' | ')
+  }
+
+  function anonHint(err) {
+    const status = httpStatusOf(err)
+    if (status === 400) {
+      return '云开发返回 400：请检查「Web 安全域名」是否包含当前域名（只填域名，不带 https:// 和路径），以及是否已开启匿名登录。'
+    }
+    if (status === 403) {
+      return '云开发返回 403：当前域名未被允许，请把当前域名加入「Web 安全域名」后刷新页面。'
+    }
+    return '匿名登录失败：请确认已开启匿名登录，且当前域名已加入「Web 安全域名」。'
+  }
+
   async function ensureApp() {
     if (cloudApp) return cloudApp
     const env = ($('env-id').value || '').trim() || DEFAULT_ENV
     localStorage.setItem(ENV_KEY, env)
-    if (typeof cloudbase === 'undefined') {
-      throw new Error('CloudBase JS SDK 未加载，请检查网络或 CDN 是否可访问')
+    if (window.__SDK_LOAD_FAILED || typeof cloudbase === 'undefined') {
+      showBanner('SDK 加载失败：请确认 vendor/cloudbase.full.js 已随页面一起上传且可访问，或改用单文件版 admin-console-standalone.html。')
+      throw makeErr(
+        'SDK_LOAD_FAILED',
+        'CloudBase SDK 未加载（window.cloudbase is not defined）',
+        '把 deploy/admin-console/vendor/cloudbase.full.js 上传到站点同目录；或直接使用单文件版（SDK 已内联）。这不是 400 白名单问题。'
+      )
     }
     cloudApp = cloudbase.init({ env })
     // CloudBase JS SDK 2.x 标准匿名登录：先 auth，再 anonymousAuthProvider().signIn()
@@ -62,17 +124,22 @@
       } else if (typeof auth.anonymousAuth === 'function') {
         await auth.anonymousAuth()
       } else {
-        throw new Error('当前 CloudBase SDK 不支持匿名登录 API')
+        throw makeErr('ANONYMOUS_REQUIRED', '当前 CloudBase SDK 不支持匿名登录 API', '请使用 deploy 目录里的 2.17.5 版本 SDK。')
       }
       if (auth && typeof auth.getLoginState === 'function') {
         const state = await auth.getLoginState()
-        if (!state) throw new Error('匿名登录后未取得登录态')
+        if (!state) throw makeErr('ANONYMOUS_REQUIRED', '匿名登录后未取得登录态')
       }
       anonState = { ok: true, error: '' }
     } catch (err) {
-      // 不吞掉：记录失败原因，登录失败时原样展示给用户，并在自检面板里给出修法
-      anonState = { ok: false, error: errText(err) }
-      console.warn('[admin] 匿名登录失败', err)
+      // 不吞：保留原始 errMsg / HTTP / URL，并阻断后续 callFunction（匿名态没拿到就不该继续调）
+      const detail = anonErrorDetail(err)
+      const status = httpStatusOf(err)
+      anonState = { ok: false, error: detail, status: status, url: requestUrlOf(err) }
+      cloudApp = null
+      showBanner('匿名登录失败（' + (status ? 'HTTP ' + status : '无状态码') + '）：请检查 Web 安全域名与匿名登录开关；详情见下方错误信息。')
+      reportPageError('匿名登录失败：' + detail)
+      throw makeErr(status === 400 ? 'ANONYMOUS_AUTH_400' : 'ANONYMOUS_REQUIRED', detail, anonHint(err))
     }
     setConn('已连接 ' + env)
     return cloudApp
@@ -156,24 +223,38 @@
     setTimeout(() => { btn.textContent = old }, 1800)
   }
 
+  function renderLoginButton(state) {
+    const btn = $('btn-login')
+    const spinner = $('login-spinner')
+    const text = $('login-btn-text')
+    if (!btn) return
+    const loading = state === 'loading'
+    btn.disabled = loading
+    btn.classList.toggle('is-loading', loading)
+    if (spinner) spinner.classList.toggle('hidden', !loading)
+    if (text) text.textContent = loading ? '登录中…' : '登录'
+  }
+
   async function login(event) {
     if (event) event.preventDefault()
+    if (loginState && !loginState.start()) return
     clearLoginError()
     const username = $('login-username').value.trim()
     const password = $('login-password').value
-    if (!username || !password) {
-      showLoginError({ code: 'PASSWORD_REQUIRED', message: '请输入用户名和密码', hint: '首次登录的密码就是 ADMIN_BOOTSTRAP_PASSWORD 的值。' })
-      return
-    }
     try {
+      if (!username || !password) {
+        throw makeErr('PASSWORD_REQUIRED', '请输入用户名和密码', '首次登录的密码就是 ADMIN_BOOTSTRAP_PASSWORD 的值。')
+      }
       const data = await callFunction('adminAuth', 'login', { username: username, password: password }, false)
       token = data.token
       adminName = (data.admin && data.admin.username) || username
       sessionStorage.setItem(TOKEN_KEY, token)
+      if (loginState) loginState.succeed()
       showApp()
       await refreshAll()
     } catch (err) {
       showLoginError(err)
+      if (loginState) loginState.fail()
     }
   }
 
@@ -204,48 +285,109 @@
 
   /* ------------------------------ 首屏自检 ------------------------------ */
 
+  /** 登录前 preflight：直接打一次环境域名，把 HTTP 状态码摊在页面上 */
+  async function runPreflight(env) {
+    const url = 'https://' + env + '.tcloudbaseapp.com/__auth'
+    const controller = typeof AbortController === 'function' ? new AbortController() : null
+    const timer = controller ? setTimeout(() => controller.abort(), 8000) : null
+    try {
+      const res = await fetch(url, {
+        method: 'GET',
+        cache: 'no-store',
+        signal: controller ? controller.signal : undefined
+      })
+      if (timer) clearTimeout(timer)
+      return { url: url, status: res.status, ok: res.status === 200, error: '' }
+    } catch (err) {
+      if (timer) clearTimeout(timer)
+      return { url: url, status: 0, ok: false, error: errText(err) }
+    }
+  }
+
+  function preflightHint(pre) {
+    if (pre.status === 400) {
+      return '云开发返回 400：请检查「Web 安全域名」是否包含 ' + location.origin.replace(/^https?:\/\//, '') + '（只填域名，不带路径、不带协议），并确认已开启匿名登录。'
+    }
+    if (pre.status === 403) {
+      return '云开发返回 403：当前域名未加入 Web 安全域名，请把 ' + location.origin.replace(/^https?:\/\//, '') + ' 加进去后刷新。'
+    }
+    if (pre.status === 0) {
+      return '探测被浏览器拦截（CORS/网络）：多数也是域名未加白名单；请同时确认页面通过 http(s) 打开而不是 file://。'
+    }
+    return '返回 HTTP ' + pre.status + '，无法据此单独判断；请以登录时的实际错误为准。'
+  }
+
+  function preflightRow(pre) {
+    const hardFail = pre.status === 400 || pre.status === 403 || pre.status === 0
+    const label = pre.status ? 'HTTP ' + pre.status : '无响应'
+    return (
+      '<div class="check-item' + (hardFail ? ' bad' : '') + '">' +
+      '<div class="check-line">' +
+      '<span class="check-flag">' + (hardFail ? '✕' : '✓') + '</span>' +
+      '<span class="check-label">环境域名探测</span>' +
+      '<span class="check-detail">' + esc(label) + ' · ' + esc(pre.url) + '</span>' +
+      '</div>' +
+      (pre.ok ? '' : '<div class="check-hint">' + esc(preflightHint(pre)) + (pre.error ? '（' + esc(pre.error) + '）' : '') + '</div>') +
+      '</div>'
+    )
+  }
+
   async function runPrecheck() {
     const box = $('precheck-list')
     if (!box) return
     box.innerHTML = '<p class="muted">检测中…</p>'
+    const env = ($('env-id').value || '').trim() || DEFAULT_ENV
+    const pre = await runPreflight(env)
+    const preflightEl = $('preflight-text')
+    if (preflightEl) {
+      preflightEl.textContent =
+        '环境域名探测：' + (pre.status ? 'HTTP ' + pre.status : '无响应') + ' · ' + pre.url +
+        (pre.status === 400 ? ' —— 400 通常是 Web 安全域名未包含当前域名或未开启匿名登录' : '')
+    }
     try {
       const data = await callFunction('adminAuth', 'precheck', {}, false)
-      renderPrecheck(data)
+      renderPrecheck(data, pre)
     } catch (err) {
+      // 匿名登录失败属于「服务端没放行」，必须立刻显示在登录错误区，而不是等用户点登录
+      if (err && (err.code === 'ANONYMOUS_AUTH_400' || err.code === 'ANONYMOUS_REQUIRED' || err.code === 'SDK_LOAD_FAILED')) {
+        showLoginError(err)
+      }
       box.innerHTML =
+        preflightRow(pre) +
         '<div class="check-item bad">' +
         '<div class="check-line"><span class="check-flag">✕</span><span class="check-label">自检接口不可用</span>' +
         '<span class="check-detail">' + esc(String((err && err.code) || '')) + ' ' + esc(String((err && err.message) || '')) + '</span></div>' +
         (err && err.hint ? '<div class="check-hint">' + esc(err.hint) + '</div>' : '') +
-        (anonState.ok ? '' : '<div class="check-hint">客户端匿名登录失败：' + esc(anonState.error) + '</div>') +
         '</div>'
       setConn('自检失败')
     }
   }
 
-  function renderPrecheck(data) {
+  function renderPrecheck(data, pre) {
     const box = $('precheck-list')
     const checks = (data && data.checks) || []
     if (!checks.length) {
-      box.innerHTML = '<p class="muted">自检未返回结果</p>'
+      box.innerHTML = preflightRow(pre) + '<p class="muted">自检未返回结果</p>'
       setConn('自检无结果')
       return
     }
-    box.innerHTML = checks
-      .map((item) => {
-        const bad = !item.ok
-        return (
-          '<div class="check-item' + (bad ? ' bad' : '') + '">' +
-          '<div class="check-line">' +
-          '<span class="check-flag">' + (bad ? '✕' : '✓') + '</span>' +
-          '<span class="check-label">' + esc(item.label) + '</span>' +
-          '<span class="check-detail">' + esc(item.detail) + '</span>' +
-          '</div>' +
-          (bad && item.hint ? '<div class="check-hint">' + esc(item.hint) + '</div>' : '') +
-          '</div>'
-        )
-      })
-      .join('')
+    box.innerHTML =
+      preflightRow(pre) +
+      checks
+        .map((item) => {
+          const bad = !item.ok
+          return (
+            '<div class="check-item' + (bad ? ' bad' : '') + '">' +
+            '<div class="check-line">' +
+            '<span class="check-flag">' + (bad ? '✕' : '✓') + '</span>' +
+            '<span class="check-label">' + esc(item.label) + '</span>' +
+            '<span class="check-detail">' + esc(item.detail) + '</span>' +
+            '</div>' +
+            (bad && item.hint ? '<div class="check-hint">' + esc(item.hint) + '</div>' : '') +
+            '</div>'
+          )
+        })
+        .join('')
 
     const failed = checks.filter((item) => !item.ok)
     if (!failed.length) {
@@ -253,15 +395,6 @@
       return
     }
     setConn('自检发现 ' + failed.length + ' 项待处理')
-    // 客户端匿名登录本身失败时，把真实原因也列出来（服务端检测不到时也能定位）
-    if (!anonState.ok && anonState.error) {
-      box.innerHTML +=
-        '<div class="check-item bad">' +
-        '<div class="check-line"><span class="check-flag">✕</span><span class="check-label">客户端匿名登录</span>' +
-        '<span class="check-detail">' + esc(anonState.error) + '</span></div>' +
-        '<div class="check-hint">云开发控制台 → 设置 → 登录方式 → 开启匿名登录，并把当前页面域名加入 Web 安全域名。</div>' +
-        '</div>'
-    }
   }
 
   /* ------------------------------ 商家列表 ------------------------------ */
@@ -707,7 +840,43 @@
     await loadMerchants()
   }
 
+  function initLoginState() {
+    if (typeof AdminLoginState === 'undefined') {
+      reportPageError('login-state.js 未加载：登录按钮缺少 loading 反馈（功能仍可用）')
+      return
+    }
+    loginState = AdminLoginState.create(function (state) {
+      renderLoginButton(state)
+    })
+  }
+
+  function initOrigin() {
+    const el = $('origin-text')
+    if (el) el.textContent = location.origin
+    const btn = $('btn-copy-origin')
+    if (!btn) return
+    btn.addEventListener('click', async () => {
+      const okCopy = await copyText(location.origin)
+      const old = btn.textContent
+      btn.textContent = okCopy ? '已复制' : '复制失败，请手动选中'
+      setTimeout(() => { btn.textContent = old }, 1600)
+    })
+  }
+
+  function checkEnvWarnings() {
+    if (location.protocol === 'file:') {
+      showBanner('请通过 http(s) 打开页面：直接双击（file://）会导致云端匿名登录失败。可在当前目录执行 npx serve . 或 python -m http.server 8000，再访问 http://localhost:8000/')
+      reportPageError('页面以 file:// 打开，云端登录不可用')
+    }
+    if (window.__SDK_LOAD_FAILED) {
+      showBanner('SDK 加载失败：vendor/cloudbase.full.js 未加载或不可读。请确认该文件已随页面上传，或改用单文件版 admin-console-standalone.html（SDK 已内联）。这是脚本问题，不是 400 白名单问题。')
+    }
+  }
+
   function init() {
+    checkEnvWarnings()
+    initLoginState()
+    initOrigin()
     $('env-id').value = localStorage.getItem(ENV_KEY) || DEFAULT_ENV
     $('repair-merchant-id').value = 'merchant_001'
     $('health-merchant-id').value = 'merchant_001'
@@ -715,6 +884,16 @@
     $('login-form').addEventListener('submit', login)
     $('btn-precheck').addEventListener('click', runPrecheck)
     $('btn-copy-error').addEventListener('click', copyLoginError)
+    const copyGlobalBtn = $('btn-copy-global-error')
+    if (copyGlobalBtn) {
+      copyGlobalBtn.addEventListener('click', async () => {
+        const text = ((window.__pageErrors || []).join('\n\n')) || '暂无页面错误'
+        const okCopy = await copyText(text)
+        const old = copyGlobalBtn.textContent
+        copyGlobalBtn.textContent = okCopy ? '已复制' : '复制失败，请手动选中'
+        setTimeout(() => { copyGlobalBtn.textContent = old }, 1600)
+      })
+    }
     $('btn-logout').addEventListener('click', logout)
     $('btn-refresh-all').addEventListener('click', () => {
       refreshAll()
@@ -748,6 +927,18 @@
     runPrecheck()
   }
 
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init)
-  else init()
+  function boot() {
+    try {
+      init()
+    } catch (err) {
+      showBanner('初始化失败：' + errText(err) + '（按 F12 查看 Console 或页面底部错误区）')
+      reportPageError('初始化失败：' + ((err && err.stack) || errText(err)))
+    }
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', boot)
+  } else {
+    boot()
+  }
 })()

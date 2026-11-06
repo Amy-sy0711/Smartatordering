@@ -37,6 +37,11 @@ function rel(file) {
   return path.relative(ROOT, file).split(path.sep).join('/')
 }
 
+/** 第三方 SDK 只做存在性与语法检查，不套用业务规则（避免 parseFloat/toFixed/phone 误报） */
+function isVendored(file) {
+  return rel(file).indexOf('/vendor/') >= 0
+}
+
 function read(file) {
   return fs.readFileSync(file, 'utf8')
 }
@@ -186,7 +191,7 @@ for (const shared of ['paymode.js', 'errors.js']) {
 /* ------------------------- 8. 金额路径无浮点入口 ------------------------- */
 const FLOAT_TOKENS = ['parseFloat', 'Number.parseFloat', 'toFixed']
 walk(ROOT, (file) => {
-  const isSource = file.endsWith('.js') && !rel(file).startsWith('tests/')
+  const isSource = file.endsWith('.js') && !rel(file).startsWith('tests/') && !isVendored(file)
   if (!isSource) return
   const source = read(file)
   for (const token of FLOAT_TOKENS) {
@@ -198,7 +203,7 @@ walk(ROOT, (file) => {
 
 /* --------------------------- 9. 相对 require 可解析 --------------------------- */
 walk(ROOT, (file) => {
-  const isSource = file.endsWith('.js') && !rel(file).startsWith('tests/')
+  const isSource = file.endsWith('.js') && !rel(file).startsWith('tests/') && !isVendored(file)
   if (!isSource) return
   const source = read(file)
   const pattern = /require\(\s*['"](\.[^'"]+)['"]\s*\)/g
@@ -240,7 +245,7 @@ if (!apiWxpay || !payWxpay) {
 
 /* -------------------- 11. 对象字面量缺少分号的 ASI 隐患 -------------------- */
 walk(ROOT, (file) => {
-  if (!file.endsWith('.js') || rel(file).startsWith('tests/')) return
+  if (!file.endsWith('.js') || rel(file).startsWith('tests/') || isVendored(file)) return
   const lines = read(file).split(/\r?\n/)
   for (let i = 0; i < lines.length - 1; i += 1) {
     const current = lines[i]
@@ -317,7 +322,7 @@ if (fs.existsSync(adminApiIndexPath)) {
 const adminConsoleDir = path.join(ROOT, 'admin-console')
 if (fs.existsSync(adminConsoleDir)) {
   walk(adminConsoleDir, (file) => {
-    if (!file.endsWith('.js')) return
+    if (!file.endsWith('.js') || isVendored(file)) return
     const source = read(file)
     for (const action of adminPolicy.FORBIDDEN_BUSINESS_ACTIONS) {
       if (source.indexOf(action) >= 0) fail('管理台出现业务读取 action：' + action + '（' + rel(file) + '）')
@@ -407,6 +412,31 @@ if (fs.existsSync(merchantUiDir)) {
     if (read(file).indexOf('本地演示') >= 0) fail('商家端仍出现本地演示模式入口：' + rel(file))
   })
 }
+
+/* ------------------------------- 9. 管理台静态资源 ------------------------------- */
+;['admin-console', 'deploy/admin-console'].forEach((dirName) => {
+  const dir = path.join(ROOT, dirName)
+  const indexPath = path.join(dir, 'index.html')
+  if (!fs.existsSync(indexPath)) {
+    fail('缺少管理台入口：' + rel(indexPath))
+    return
+  }
+  const html = read(indexPath)
+  const refs = []
+  const attrRe = /(?:src|href)\s*=\s*"([^"]+)"/g
+  let match = null
+  while ((match = attrRe.exec(html)) !== null) refs.push(match[1])
+  refs.forEach((ref) => {
+    if (/^(https?:|data:|mailto:|#|javascript:)/.test(ref)) return
+    const target = path.resolve(dir, ref.split('?')[0].split('#')[0])
+    if (!fs.existsSync(target)) fail('管理台引用文件不存在：' + rel(indexPath) + ' → ' + ref)
+  })
+  if (html.indexOf('static.cloudbase.net') >= 0) fail('管理台仍在引用 CDN SDK：' + rel(indexPath))
+  if (html.indexOf('vendor/cloudbase.full.js') < 0) fail('管理台未引用本地 SDK：' + rel(indexPath))
+  ;['app.js', 'login-state.js', 'style.css', 'vendor/cloudbase.full.js'].forEach((file) => {
+    if (!fs.existsSync(path.join(dir, file))) fail('管理台缺少文件：' + rel(path.join(dir, file)))
+  })
+})
 
 /* ------------------------------- 结果 ------------------------------- */
 console.log('静态校验统计：')

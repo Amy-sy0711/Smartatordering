@@ -77,7 +77,7 @@
 │   ├── init/                       # 建集合、默认商家、迁移旧数据、种子数据
 │   ├── adminAuth/ adminApi/        # 平台运营后台（token 鉴权，无业务读接口）
 │   └── merchantAuth/               # 商家网页后台登录（账号密码 → 商家 token）
-├── admin-console/                  # 平台运营后台（纯静态 HTML + CDN SDK）
+├── admin-console/                  # 平台运营后台（纯静态 HTML + 本地 SDK）
 ├── merchant-console/               # 商家网页后台（纯静态 HTML + CDN SDK）
 ├── tests/
 │   ├── run-tests.js                # 离线纯逻辑单测
@@ -296,14 +296,14 @@ pending_pay / pending_confirm / paid / accepted / ready ──取消──> canc
 
 ## 7. 平台运营后台（`admin-console/`）
 
-纯静态：`index.html` + `app.js` + `style.css`，CDN 引 `@cloudbase/js-sdk` 匿名登录，无 npm 构建。
+纯静态：`index.html` + `app.js` + `style.css` + `login-state.js` + `vendor/cloudbase.full.js`（本地固化 SDK 2.17.5，不再依赖 CDN），无 npm 构建。
 
 ### 部署
-1. CloudBase 静态托管：把 `admin-console/` 三个文件上传到一个静态站点目录，记下访问域名。
+1. CloudBase 静态托管：把 `deploy/admin-console/` 全部文件（含 `vendor/` 子目录）上传到静态站点根目录，记下访问域名。
 2. 或 GitHub Pages：把该目录作为 Pages 根目录发布（或用 `/admin-console/` 子路径）。
-3. 云开发控制台 → 环境 → 安全配置 → **Web 安全域名**：加入控制台域名（GitHub Pages 也要加）。
-4. 云函数环境变量：`ADMIN_TOKEN_SECRET`、`ADMIN_BOOTSTRAP_PASSWORD`（首次初始化后失效）。
-5. 打开页面，填环境 ID `ordering-d0gyct6z1ff2afebd`，用管理员账号登录。
+3. 云开发控制台 → 环境 → 安全配置 → **Web 安全域名**：加入控制台域名（GitHub Pages 也要加；**只填域名，不带路径**）。
+4. 云函数环境变量：`ADMIN_TOKEN_SECRET`、`ADMIN_BOOTSTRAP_PASSWORD`；改完必须重新部署 `adminAuth` / `adminApi`。
+5. 打开页面（**必须 http/https，不能双击 file://**），环境 ID 已预填 `ordering-d0gyct6z1ff2afebd`，首屏「环境自检」会显示域名探测 HTTP 状态码与逐项修法。
 
 ### 能做什么
 - 商家列表（搜索 / 状态 / 今日订单数 / 员工数）
@@ -439,6 +439,8 @@ node tests/static-check.js    # JS 语法、JSON、页面、组件、集合、�
 | `ALREADY_INITIALIZED` | `admins` 已有记录，但输入的用户名没有匹配到（不是密码错） | 用已有管理员账号登录；确需重置：控制台删除 `admins` 全部记录 → 重新部署 → 用初始口令创建 |
 | `ANONYMOUS_REQUIRED` / 页面显示「客户端匿名登录失败」 | 未开启匿名登录，或当前域名不在 Web 安全域名 | 设置 → 登录方式 → 匿名登录；设置 → 安全配置 → Web 安全域名（只填域名，不带路径） |
 | 页面只有「登录失败」四个字 | 旧前端把 SDK reject 对象的 `message` 取空后用了兜底文案 | 换用最新 `deploy/admin-console/` 或 `deploy/admin-console-standalone.html` |
+| Console `400 (Bad Request)`，URL 含环境 ID | 匿名登录请求被拒：Web 安全域名不含当前域名，或未开启匿名登录 | 控制台 → 设置 → 安全配置 → Web 安全域名（只填域名）并开启匿名登录；页面会显示当前 `location.origin` 与「复制当前域名」 |
+| `cloudbase is not defined` / 横幅「SDK 加载失败」 | 本地 `vendor/cloudbase.full.js` 没上传或路径层级不对 | 保持 `index.html` 与 `vendor/` 同级上传；或改用单文件版（SDK 已内联）。这与 400 白名单是两个问题 |
 | 自检全绿但仍登录失败 | 用户名/密码确实不对，或云端跑的还是旧版云函数 | 点「复制错误信息」看具体 code；对 `adminAuth` 重新部署 |
 
 **改环境变量后必须重新部署云函数**：在云开发控制台改完「环境变量」后，对 `adminAuth`（涉及 token 的还有 `adminApi`）执行一次「上传并部署：云端安装依赖」，确保新变量注入运行实例；否则可能仍跑在旧实例上读不到 `ADMIN_BOOTSTRAP_PASSWORD` / `ADMIN_TOKEN_SECRET`。
