@@ -1,0 +1,10 @@
+{
+  "name": "ordering-admin-gateway",
+  "version": "1.0.0",
+  "private": true,
+  "description": "本机管理网关：微信云开发 HTTP API（AppSecret），供浏览器管理台使用",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  }
+}

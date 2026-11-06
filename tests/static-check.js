@@ -438,6 +438,100 @@ if (fs.existsSync(merchantUiDir)) {
   })
 })
 
+/* ------------------------------- 10. 诊断信息 / 备用链路 / 平台管理页 ------------------------------- */
+;['admin-console', 'deploy/admin-console'].forEach((dirName) => {
+  const dir = path.join(ROOT, dirName)
+  const indexPath = path.join(dir, 'index.html')
+  if (!fs.existsSync(indexPath)) return
+  const html = read(indexPath)
+  if (!fs.existsSync(path.join(dir, 'diagnostics.js'))) fail('管理台缺少错误诊断模块：' + rel(path.join(dir, 'diagnostics.js')))
+  if (html.indexOf('diagnostics.js') < 0) fail('管理台未引用 diagnostics.js：' + rel(indexPath))
+  if (html.indexOf('btn-copy-diagnostics') < 0) fail('管理台缺少「复制诊断信息」按钮：' + rel(indexPath))
+  if (html.indexOf('conn-mode') < 0) fail('管理台缺少连接方式切换：' + rel(indexPath))
+  const appIdx = html.indexOf('app.js')
+  const diagIdx = html.indexOf('diagnostics.js')
+  if (diagIdx >= 0 && appIdx >= 0 && diagIdx > appIdx) fail('diagnostics.js 必须在 app.js 之前加载：' + rel(indexPath))
+})
+
+const adminApiIndex = path.join(ROOT, 'cloudfunctions', 'adminApi', 'index.js')
+if (fs.existsSync(adminApiIndex)) {
+  const src = read(adminApiIndex)
+  if (src.indexOf("require('./core/http-adapter')") < 0) fail('adminApi 未接入 HTTP 适配模块')
+  if (src.indexOf('x-admin-token') < 0 && src.indexOf('extractToken') < 0) fail('adminApi HTTP 入口未解析 x-admin-token / query token')
+  if (src.indexOf('OPTIONS') < 0) fail('adminApi HTTP 入口缺少 OPTIONS 预检处理')
+  if (src.indexOf('getWXContext') < 0) fail('adminApi 缺少小程序 openid 鉴权（平台管理页依赖）')
+}
+
+const gatewayCore = path.join(ROOT, 'tools', 'admin-gateway', 'core.js')
+const gatewayServer = path.join(ROOT, 'tools', 'admin-gateway', 'server.js')
+if (!fs.existsSync(gatewayCore) || !fs.existsSync(gatewayServer)) fail('缺少本地代理 tools/admin-gateway/{core,server}.js')
+if (fs.existsSync(gatewayServer)) {
+  const src = read(gatewayServer)
+  if (src.indexOf('127.0.0.1') < 0) fail('本地网关未限制在本机 127.0.0.1 监听')
+  if (src.indexOf('8787') < 0) fail('本地网关未使用默认端口 8787')
+  if (!/process\.env\.WX_APPID/.test(src)) fail('本地网关未从环境变量读取 WX_APPID')
+  if (!/process\.env\.WX_APPSECRET/.test(src)) fail('本地网关未从环境变量读取 WX_APPSECRET')
+  if (src.indexOf('cgi-bin/token') < 0) fail('本地网关未通过 cgi-bin/token 获取 access_token')
+  if (src.indexOf('invokecloudfunction') < 0) fail('本地网关未通过 invokecloudfunction 调用云函数')
+  if (src.indexOf('GATEWAY_TOKEN') < 0) fail('本地网关缺少本机口令校验')
+  if (/appsecret\s*[:=]\s*['"][A-Za-z0-9]{10,}/i.test(src)) fail('本地网关疑似硬编码 AppSecret')
+  if (src.indexOf('isAllowedAction') < 0) fail('本地网关缺少路由白名单')
+  if (src.indexOf('injectGatewayConfig') < 0) fail('本地网关未向静态页注入配置')
+}
+/* 注入模式：页面配置来自网关，不再要求手填 HTTP 地址 */
+const consoleApp = path.join(ROOT, 'admin-console', 'app.js')
+const consoleHtml = path.join(ROOT, 'admin-console', 'index.html')
+if (fs.existsSync(consoleApp)) {
+  const src = read(consoleApp)
+  if (src.indexOf('__GATEWAY__') < 0) fail('管理台未读取网关注入的 __GATEWAY__ 配置')
+  if (src.indexOf("/admin") < 0) fail('管理台未使用 /api/admin 请求体')
+  if (src.indexOf('x-gateway-token') < 0) fail('管理台请求未带 x-gateway-token')
+}
+if (fs.existsSync(consoleHtml) && read(consoleHtml).indexOf('<!--GATEWAY_CONFIG-->') < 0) {
+  fail('管理台 index.html 缺少网关配置占位符 <!--GATEWAY_CONFIG-->')
+}
+if (fs.existsSync(gatewayCore)) {
+  const src = read(gatewayCore)
+  if (src.indexOf('isAllowedAction') < 0) fail('本地网关 core 缺少 action 白名单')
+  if (src.indexOf('FORBIDDEN_ACTIONS') < 0) fail('本地网关 core 缺少业务明细禁用名单')
+}
+
+/* 前端/管理台不得出现 AppSecret 或云 API 密钥；浏览器管理台不得出现订单/菜品字段 */
+;['admin-console/app.js', 'admin-console/index.html', 'admin-console/diagnostics.js',
+  'deploy/admin-console/app.js', 'deploy/admin-console/index.html', 'deploy/admin-console/diagnostics.js',
+  'miniprogram/pages/platform-admin', 'miniprogram/utils/platform-guard.js'].forEach((item) => {
+  const target = path.join(ROOT, item)
+  if (!fs.existsSync(target)) return
+  const files = fs.statSync(target).isDirectory()
+    ? fs.readdirSync(target, { withFileTypes: true }).flatMap((entry) => {
+      const full = path.join(target, entry.name)
+      return entry.isDirectory() ? [] : [full]
+    })
+    : [target]
+  files.forEach((file) => {
+    const src = read(file)
+    if (/TENCENT_SECRET_ID|TENCENT_SECRET_KEY|SecretId|SecretKey|WX_APPSECRET|AppSecret/.test(src)) {
+      fail('前端出现密钥字样/密钥：' + rel(file))
+    }
+    if (/order\.list|merchant\.orders|merchant\.dishes|dish\.list|exportOrders/.test(src)) fail('前端出现业务明细接口：' + rel(file))
+  })
+})
+
+const platformAppJsonText = read(path.join(MP_ROOT, 'app.json'))
+;['pages/platform-admin/index/index', 'pages/platform-admin/detail/detail', 'pages/platform-admin/audit/audit'].forEach((page) => {
+  if (platformAppJsonText.indexOf(page) < 0) fail('app.json 未注册平台管理页：' + page)
+  ;['js', 'json', 'wxml', 'wxss'].forEach((ext) => {
+    const file = path.join(MP_ROOT, page + '.' + ext)
+    if (!fs.existsSync(file)) fail('平台管理页缺少文件：' + rel(file))
+  })
+  if (page.indexOf('/detail/') >= 0 || page.indexOf('/audit/') >= 0 || page.indexOf('/index/') >= 0) {
+    const js = read(path.join(MP_ROOT, page + '.js'))
+    if (js.indexOf("require('../../../utils/platform-guard')") < 0) fail('平台管理页缺少路由守卫：' + page)
+    if (js.indexOf('if (decision.needBind)') < 0 && js.indexOf('decision.needBind') < 0) fail('平台管理页未处理未绑定状态：' + page)
+  }
+})
+if (read(path.join(MP_ROOT, 'pages', 'menu', 'menu.wxml')).indexOf('goPlatformAdmin') < 0) fail('菜单页缺少平台管理入口（仅管理员可见）')
+
 /* ------------------------------- 结果 ------------------------------- */
 console.log('静态校验统计：')
 console.log('  JS 文件        ' + stats.js)

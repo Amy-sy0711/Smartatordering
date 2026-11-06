@@ -36,6 +36,10 @@ const adminPolicy = require(path.join(ROOT, 'cloudfunctions', 'adminApi', 'core'
 const adminAudit = require(path.join(ROOT, 'cloudfunctions', 'adminApi', 'core', 'audit'))
 const adminAuthCore = require(path.join(ROOT, 'cloudfunctions', 'adminAuth', 'core', 'auth-core'))
 const loginStateFactory = require(path.join(ROOT, 'admin-console', 'login-state'))
+const adminDiagnostics = require(path.join(ROOT, 'admin-console', 'diagnostics'))
+const platformGuard = require(path.join(MINI_UTILS, 'platform-guard'))
+const httpAdapter = require(path.join(ROOT, 'cloudfunctions', 'adminApi', 'core', 'http-adapter'))
+const gatewayCore = require(path.join(ROOT, 'tools', 'admin-gateway', 'core'))
 
 let passed = 0
 let failed = 0
@@ -1137,6 +1141,342 @@ test('状态机：loading 中重复点击被忽略；失败 loading → error �
   assert.strictEqual(sm.getLastResult(), 'error')
   assert.strictEqual(sm.fail(), false, '非 loading 状态不允许再次 fail')
   assert.strictEqual(sm.reset(), true)
+})
+
+console.log('\n[错误归一化与诊断信息]')
+
+test('safeSerialize 处理循环引用不抛异常', () => {
+  const node = { name: 'root' }
+  node.self = node
+  node.list = [node]
+  const out = adminDiagnostics.safeSerialize(node)
+  assert.strictEqual(out.name, 'root')
+  assert.strictEqual(out.self, '[Circular]')
+})
+
+test('describeError 保留 code/message/errMsg/errCode/requestId/HTTP/URL', () => {
+  const err = new Error('匿名登录失败')
+  err.code = 'ANONYMOUS_AUTH_DISABLED'
+  err.errCode = 400
+  err.errMsg = 'anonymous auth is disabled'
+  err.requestId = 'req-123'
+  err.statusCode = 400
+  err.url = 'https://ordering-d0gyct6z1ff2afebd.tcloudbaseapp.com/__auth'
+  const d = adminDiagnostics.describeError(err)
+  assert.strictEqual(d.code, 'ANONYMOUS_AUTH_DISABLED')
+  assert.strictEqual(d.message, '匿名登录失败')
+  assert.strictEqual(d.errMsg, 'anonymous auth is disabled')
+  assert.strictEqual(d.errCode, 400)
+  assert.strictEqual(d.requestId, 'req-123')
+  assert.strictEqual(d.status, 400)
+  assert.ok(d.url.indexOf('__auth') >= 0)
+})
+
+test('formatErrorText 不出现「未知错误」，且带原始对象', () => {
+  const err = { errMsg: 'request failed', errCode: 'UNIMPLEMENTED', requestId: 'r1' }
+  const text = adminDiagnostics.formatErrorText(err)
+  assert.ok(text.indexOf('未知错误') < 0)
+  assert.ok(text.indexOf('UNIMPLEMENTED') >= 0)
+  assert.ok(text.indexOf('request failed') >= 0)
+  assert.ok(text.indexOf('原始对象') >= 0)
+  assert.ok(text.indexOf('r1') >= 0)
+})
+
+test('buildDiagnostics 含 SDK 版本/origin/环境 ID/匿名结果/最后错误', () => {
+  const err = { code: 'CALL_FUNCTION_FAILED', message: 'failed' }
+  const text = adminDiagnostics.buildDiagnostics({
+    time: '2026-11-06T00:00:00.000Z',
+    origin: 'https://amy-sy0711.github.io',
+    protocol: 'https:',
+    envId: 'ordering-d0gyct6z1ff2afebd',
+    sdkVersion: '2.17.5',
+    sdkLoaded: true,
+    anon: { ok: false, error: { code: 'UNIMPLEMENTED', message: 'Method Not Allowed' }, status: 400, url: 'https://x/__auth' },
+    connectionMode: 'proxy',
+    connectionLabel: '本地代理（仅本机）',
+    httpEndpoint: 'http://127.0.0.1:8787',
+    lastError: err,
+    pageErrors: ['boom']
+  })
+  assert.ok(text.indexOf('amy-sy0711.github.io') >= 0)
+  assert.ok(text.indexOf('ordering-d0gyct6z1ff2afebd') >= 0)
+  assert.ok(text.indexOf('2.17.5') >= 0)
+  assert.ok(text.indexOf('UNIMPLEMENTED') >= 0)
+  assert.ok(text.indexOf('CALL_FUNCTION_FAILED') >= 0)
+  assert.ok(text.indexOf('本地代理') >= 0)
+  assert.ok(text.indexOf('boom') >= 0)
+})
+
+console.log('\n[小程序平台管理员：绑定与路由守卫]')
+
+test('planWxLogin：已绑定直接放行', () => {
+  const plan = adminAuthCore.planWxLogin({ hasUid: true, boundAdminFound: true })
+  assert.strictEqual(plan.ok, true)
+  assert.strictEqual(plan.mode, 'bound')
+})
+
+test('planWxLogin：未获取 openid 报 WX_CONTEXT_REQUIRED', () => {
+  const plan = adminAuthCore.planWxLogin({ hasUid: false })
+  assert.strictEqual(plan.code, 'WX_CONTEXT_REQUIRED')
+  assert.ok(plan.hint)
+})
+
+test('planWxLogin：已有管理员但未绑定 → ADMIN_OPENID_NOT_BOUND', () => {
+  const plan = adminAuthCore.planWxLogin({ hasUid: true, collectionExists: true, adminTotal: 2 })
+  assert.strictEqual(plan.ok, false)
+  assert.strictEqual(plan.code, 'ADMIN_OPENID_NOT_BOUND')
+  assert.ok(plan.hint)
+})
+
+test('planWxLogin：账号密码正确时绑定 openid；密码错误报 INVALID_CREDENTIALS', () => {
+  const okPlan = adminAuthCore.planWxLogin({
+    hasUid: true,
+    collectionExists: true,
+    adminTotal: 1,
+    hasCredentialAttempt: true,
+    credentialAdminFound: true,
+    passwordMatches: true
+  })
+  assert.strictEqual(okPlan.ok, true)
+  assert.strictEqual(okPlan.mode, 'bind')
+  const badPlan = adminAuthCore.planWxLogin({
+    hasUid: true,
+    collectionExists: true,
+    adminTotal: 1,
+    hasCredentialAttempt: true,
+    credentialAdminFound: true,
+    passwordMatches: false
+  })
+  assert.strictEqual(badPlan.code, 'INVALID_CREDENTIALS')
+})
+
+test('planWxLogin：空集合 + 正确初始口令 → bootstrap；口令错 → 拒绝', () => {
+  const okPlan = adminAuthCore.planWxLogin({
+    hasUid: true,
+    collectionExists: true,
+    adminTotal: 0,
+    hasBootstrap: true,
+    bootstrapMatches: true
+  })
+  assert.strictEqual(okPlan.ok, true)
+  assert.strictEqual(okPlan.mode, 'bootstrap')
+  const badPlan = adminAuthCore.planWxLogin({
+    hasUid: true,
+    collectionExists: true,
+    adminTotal: 0,
+    hasBootstrap: true,
+    bootstrapMatches: false
+  })
+  assert.strictEqual(badPlan.code, 'INVALID_CREDENTIALS')
+})
+
+test('路由守卫：已绑定放行；未绑定提示绑定；其他错误拒绝并踢回首页', () => {
+  assert.strictEqual(platformGuard.decidePlatformAccess({ ok: true, bound: true }).allowed, true)
+  const bind = platformGuard.decidePlatformAccess({ code: 'ADMIN_OPENID_NOT_BOUND', message: '未绑定', hint: '绑定' })
+  assert.strictEqual(bind.allowed, false)
+  assert.strictEqual(bind.needBind, true)
+  const denied = platformGuard.decidePlatformAccess({ code: 'UNAUTHORIZED', message: '无权限' })
+  assert.strictEqual(denied.allowed, false)
+  assert.strictEqual(denied.needBind, false)
+  assert.strictEqual(platformGuard.MENU_PATH, '/pages/menu/menu')
+})
+
+console.log('\n[HTTP 访问服务与本地代理]')
+
+test('HTTP token 解析顺序：header → query → body', () => {
+  const headerEvent = { httpMethod: 'POST', headers: { 'X-Admin-Token': 'h-token' }, queryStringParameters: { token: 'q-token' } }
+  assert.deepStrictEqual(httpAdapter.extractToken(headerEvent, { token: 'b-token' }), { token: 'h-token', source: 'header' })
+  const queryEvent = { httpMethod: 'POST', headers: {}, queryStringParameters: { token: 'q-token' } }
+  assert.deepStrictEqual(httpAdapter.extractToken(queryEvent, {}), { token: 'q-token', source: 'query' })
+  assert.deepStrictEqual(httpAdapter.extractToken({ headers: {} }, { token: 'b-token' }), { token: 'b-token', source: 'body' })
+  assert.deepStrictEqual(httpAdapter.extractToken({ headers: {} }, {}), { token: '', source: 'none' })
+})
+
+test('HTTP CORS：OPTIONS 预检所需的响应头齐全', () => {
+  const headers = httpAdapter.corsHeaders({ headers: { origin: 'https://amy-sy0711.github.io' } }, [])
+  assert.strictEqual(headers['Access-Control-Allow-Origin'], 'https://amy-sy0711.github.io')
+  assert.ok(headers['Access-Control-Allow-Headers'].indexOf('x-admin-token') >= 0)
+  assert.ok(headers['Access-Control-Allow-Methods'].indexOf('OPTIONS') >= 0)
+  const whitelisted = httpAdapter.corsHeaders({ headers: { origin: 'https://evil.example' } }, ['https://amy-sy0711.github.io'])
+  assert.strictEqual(whitelisted['Access-Control-Allow-Origin'], 'https://amy-sy0711.github.io')
+})
+
+test('HTTP body 解析：base64 / 非法 JSON / 非对象均安全处理', () => {
+  assert.deepStrictEqual(httpAdapter.parseHttpBody({ body: '{"action":"health"}' }).value, { action: 'health' })
+  const b64 = Buffer.from('{"action":"health"}').toString('base64')
+  assert.deepStrictEqual(httpAdapter.parseHttpBody({ body: b64, isBase64Encoded: true }).value, { action: 'health' })
+  assert.strictEqual(httpAdapter.parseHttpBody({ body: '{bad' }).ok, false)
+  assert.strictEqual(httpAdapter.parseHttpBody({ body: '[1,2]' }).ok, false)
+})
+
+test('本地代理路由白名单：只放行平台管理接口', () => {
+  assert.strictEqual(gatewayCore.isAllowedAction('merchant.list'), true)
+  assert.strictEqual(gatewayCore.isAllowedAction('adminApi/merchant.setStatus'), true)
+  assert.strictEqual(gatewayCore.isAllowedAction('health'), true)
+  assert.strictEqual(gatewayCore.isAllowedAction('audit.list'), true)
+  assert.strictEqual(gatewayCore.isAllowedAction('merchant.orders'), false)
+  assert.strictEqual(gatewayCore.isAllowedAction('orders'), false)
+  assert.strictEqual(gatewayCore.isAllowedAction('merchant.dishes'), false)
+  assert.strictEqual(gatewayCore.isAllowedAction('stats'), false)
+  assert.strictEqual(gatewayCore.isAllowedAction(''), false)
+})
+
+test('本地代理 token 解析与 CORS', () => {
+  assert.strictEqual(gatewayCore.extractToken({ 'x-admin-token': 't1' }, {}), 't1')
+  assert.strictEqual(gatewayCore.extractToken({}, { token: 't2' }), 't2')
+  assert.strictEqual(gatewayCore.extractToken({}, {}), '')
+  assert.strictEqual(gatewayCore.extractGatewayToken({ 'x-gateway-token': 'g1' }, {}), 'g1')
+  assert.strictEqual(gatewayCore.extractGatewayToken({}, { gateway: 'g2' }), 'g2')
+  const headers = gatewayCore.corsHeaders('https://amy-sy0711.github.io', [])
+  assert.strictEqual(headers['Access-Control-Allow-Origin'], 'https://amy-sy0711.github.io')
+  assert.ok(headers['Access-Control-Allow-Headers'].indexOf('x-gateway-token') >= 0)
+})
+
+test('本机口令校验：错误口令拒绝，定长比较', () => {
+  assert.strictEqual(gatewayCore.checkGatewayToken('abc', 'abc'), true)
+  assert.strictEqual(gatewayCore.checkGatewayToken('abd', 'abc'), false)
+  assert.strictEqual(gatewayCore.checkGatewayToken('short', 'longer-token'), false)
+  assert.strictEqual(gatewayCore.checkGatewayToken('', ''), true)
+})
+
+console.log('\n[本地网关：access_token 缓存与错误映射]')
+
+test('access_token 缓存：首次获取、未过期复用、临近过期刷新', async () => {
+  let now = 1000000
+  let fetchCount = 0
+  const cache = gatewayCore.createTokenCache({
+    ttl: 7000,
+    refreshBefore: 200,
+    now: () => now,
+    fetchToken: async () => {
+      fetchCount += 1
+      return { access_token: 'token-' + fetchCount, expires_in: 7200 }
+    }
+  })
+  const first = await cache.get()
+  assert.strictEqual(first, 'token-1')
+  assert.strictEqual(fetchCount, 1)
+  const second = await cache.get()
+  assert.strictEqual(second, 'token-1')
+  assert.strictEqual(fetchCount, 1)
+  now += 7000 * 1000
+  const third = await cache.get()
+  assert.strictEqual(third, 'token-2')
+  assert.strictEqual(fetchCount, 2)
+})
+
+test('access_token 缓存：并发请求共享同一次刷新', async () => {
+  let resolveFetch = null
+  let fetchCount = 0
+  const cache = gatewayCore.createTokenCache({
+    fetchToken: () => {
+      fetchCount += 1
+      return new Promise((resolve) => {
+        resolveFetch = resolve
+      })
+    }
+  })
+  const a = cache.get()
+  const b = cache.get()
+  await Promise.resolve()
+  await Promise.resolve()
+  resolveFetch({ access_token: 'shared', expires_in: 7200 })
+  const [ta, tb] = await Promise.all([a, b])
+  assert.strictEqual(ta, 'shared')
+  assert.strictEqual(tb, 'shared')
+  assert.strictEqual(fetchCount, 1)
+})
+
+test('access_token 获取失败时抛错并可恢复', async () => {
+  let fail = true
+  const cache = gatewayCore.createTokenCache({
+    fetchToken: async () => (fail ? { errcode: 40013, errmsg: 'invalid appid' } : { access_token: 'ok', expires_in: 7200 })
+  })
+  let caught = null
+  try {
+    await cache.get()
+  } catch (err) {
+    caught = err
+  }
+  assert.ok(caught)
+  assert.strictEqual(caught.errcode, 40013)
+  fail = false
+  assert.strictEqual(await cache.get(), 'ok')
+})
+
+test('微信错误映射：40001/42001 可重试并刷新 token，40013 不可重试', () => {
+  const expired = gatewayCore.mapWxError(42001, 'access_token expired')
+  assert.strictEqual(expired.code, 'WX_42001')
+  assert.strictEqual(expired.retryable, true)
+  assert.ok(expired.message.indexOf('刷新') >= 0)
+  const invalid = gatewayCore.mapWxError(40001, 'invalid credential')
+  assert.strictEqual(invalid.retryable, true)
+  const appid = gatewayCore.mapWxError(40013, 'invalid appid')
+  assert.strictEqual(appid.retryable, false)
+  assert.ok(appid.message.indexOf('AppID') >= 0)
+  const busy = gatewayCore.mapWxError(-1, 'system error')
+  assert.strictEqual(busy.retryable, true)
+})
+
+test('invokecloudfunction 响应解析：成功 / 微信错误 / 坏 JSON', () => {
+  const ok = gatewayCore.parseInvokeResult({ errcode: 0, errmsg: 'ok', resp_data: '{"code":0,"data":{"list":[]}}' })
+  assert.strictEqual(ok.ok, true)
+  assert.deepStrictEqual(ok.data, { code: 0, data: { list: [] } })
+  const wxErr = gatewayCore.parseInvokeResult({ errcode: 42001, errmsg: 'access_token expired' })
+  assert.strictEqual(wxErr.ok, false)
+  assert.strictEqual(wxErr.code, 'WX_42001')
+  assert.strictEqual(wxErr.retryable, true)
+  const bad = gatewayCore.parseInvokeResult('<html>500</html>')
+  assert.strictEqual(bad.ok, false)
+  assert.strictEqual(bad.code, 'BAD_UPSTREAM_JSON')
+})
+
+console.log('\n[本地网关：静态页注入配置 / 模式优先级 / adminToken 传递]')
+
+test('网关注入配置解析：mode=gateway、base=/api、token 不丢', () => {
+  const cfg = gatewayCore.buildGatewayConfig('gw-token-123', '/api')
+  assert.deepStrictEqual(cfg, { mode: 'gateway', base: '/api', token: 'gw-token-123' })
+  const html = '<html><head><!--GATEWAY_CONFIG--></head><body>app</body></html>'
+  const out = gatewayCore.injectGatewayConfig(html, cfg)
+  assert.ok(out.indexOf('<!--GATEWAY_CONFIG-->') < 0, '占位符应被替换')
+  assert.ok(out.indexOf('window.__GATEWAY__ = ') >= 0)
+  assert.ok(out.indexOf('"mode":"gateway"') >= 0)
+  assert.ok(out.indexOf('"base":"/api"') >= 0)
+  assert.ok(out.indexOf('"token":"gw-token-123"') >= 0)
+  // 解析回注入的 JSON：模拟浏览器读取 window.__GATEWAY__
+  const json = out.slice(out.indexOf('window.__GATEWAY__ = ') + 'window.__GATEWAY__ = '.length)
+  const parsed = JSON.parse(json.slice(0, json.indexOf(';</script>')))
+  assert.strictEqual(parsed.mode, 'gateway')
+  assert.strictEqual(parsed.token, 'gw-token-123')
+})
+
+test('注入配置对 HTML 特殊字符安全，且无占位符时插入 head', () => {
+  const cfg = gatewayCore.buildGatewayConfig('a</script><b>', '/api')
+  const out = gatewayCore.injectGatewayConfig('<html><head></head><body></body></html>', cfg)
+  assert.ok(out.indexOf('</script><b>') < 0, 'token 中的尖括号必须转义')
+  assert.ok(out.indexOf('\\u003c') >= 0)
+  assert.ok(out.indexOf('window.__GATEWAY__') > out.indexOf('<head>'))
+})
+
+test('gateway 模式优先级最高：注入后忽略本地保存的 cloud/local', () => {
+  const cfg = gatewayCore.buildGatewayConfig('t', '/api')
+  assert.strictEqual(gatewayCore.resolveMode(cfg, 'cloud'), 'gateway')
+  assert.strictEqual(gatewayCore.resolveMode(cfg, 'local'), 'gateway')
+  assert.strictEqual(gatewayCore.resolveMode(cfg, ''), 'gateway')
+  assert.strictEqual(gatewayCore.resolveMode(null, 'cloud'), 'cloud')
+  assert.strictEqual(gatewayCore.resolveMode(null, 'local'), 'local')
+  assert.strictEqual(gatewayCore.resolveMode(null, 'weird'), 'local')
+  assert.strictEqual(gatewayCore.resolveMode({ mode: 'other' }, 'cloud'), 'cloud')
+})
+
+test('/api/admin 请求体：管理员 token 提到顶层，payload 不再重复 token', () => {
+  const body = gatewayCore.buildAdminRequest('admin-token', 'merchant.list', { token: 'admin-token', page: 1 })
+  assert.deepStrictEqual(body, { token: 'admin-token', action: 'merchant.list', payload: { page: 1 } })
+  const fromPayload = gatewayCore.buildAdminRequest('', 'adminApi/health', { token: 'inner-token' })
+  assert.strictEqual(fromPayload.token, 'inner-token')
+  assert.strictEqual(fromPayload.action, 'health')
+  assert.strictEqual('token' in fromPayload.payload, false)
+  assert.strictEqual(gatewayCore.buildAdminRequest('t', '', {}).action, '')
 })
 
 console.log('\n[平台运营后台：禁止业务明细]')

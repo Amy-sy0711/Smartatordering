@@ -4,6 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>平台运营后台 · 点餐 SaaS</title>
+  <!--GATEWAY_CONFIG-->
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -26,9 +27,22 @@
     <section id="login-panel" class="card login-card">
       <h2>管理员登录</h2>
       <p class="muted">账号来自云函数环境变量 <code>ADMIN_BOOTSTRAP_PASSWORD</code> 首次创建，或已有管理员。</p>
+      <p id="plan-a-note" class="muted">注意：浏览器匿名登录（A 方案）在当前云开发环境返回 <code>UNIMPLEMENTED</code>（error_code 12，Method Not Allowed），已停用。浏览器请用下方「本地网关」（B2）；不常用浏览器时也可用小程序内「平台管理」（C）。</p>
       <div class="origin-row">
         <span>当前域名：<code id="origin-text">—</code></span>
         <button type="button" class="btn small" id="btn-copy-origin">复制当前域名</button>
+      </div>
+      <p id="gateway-mode-note" class="gateway-mode-note hidden">本地网关已自动配置：地址 <code>/api</code>，本机口令已注入。直接输入管理员账号密码登录即可。</p>
+      <div class="mode-switch" id="mode-switch">
+        <label>连接方式
+          <select id="conn-mode">
+            <option value="local">本地网关（推荐，127.0.0.1:8787）</option>
+            <option value="cloud">小程序云调用（当前环境匿名登录不可用，仅对照）</option>
+          </select>
+        </label>
+        <label>网关地址<input id="http-endpoint" value="http://127.0.0.1:8787/api" /></label>
+        <label>本机口令<input id="gateway-token" placeholder="启动网关时终端打印的 GATEWAY_TOKEN（也可用 ?gateway= 自动带入）" /></label>
+        <p class="muted">启动：<code>cd tools/admin-gateway</code> → <code>npm start</code>（或双击 start.bat）；浏览器直接打开 <code>http://127.0.0.1:8787/</code> 最省事。</p>
       </div>
       <p id="preflight-text" class="muted preflight-text">正在探测云开发环境…</p>
       <form id="login-form" class="form-grid">
@@ -43,6 +57,7 @@
         <p id="login-error" class="error-text"></p>
         <p id="login-error-hint" class="error-hint"></p>
         <button type="button" class="btn small" id="btn-copy-error">复制错误信息</button>
+        <button type="button" class="btn small" id="btn-copy-diagnostics">复制诊断信息</button>
       </div>
 
       <div class="precheck">
@@ -229,6 +244,7 @@
     onerror="window.__SDK_LOAD_FAILED = true; window.__reportPageError && window.__reportPageError('SDK 加载失败：vendor/cloudbase.full.js 未找到或无法读取')"
   ></script>
   <script src="login-state.js"></script>
+  <script src="diagnostics.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

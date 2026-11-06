@@ -296,14 +296,41 @@ pending_pay / pending_confirm / paid / accepted / ready ──取消──> canc
 
 ## 7. 平台运营后台（`admin-console/`）
 
-纯静态：`index.html` + `app.js` + `style.css` + `login-state.js` + `vendor/cloudbase.full.js`（本地固化 SDK 2.17.5，不再依赖 CDN），无 npm 构建。
+纯静态：`index.html` + `app.js` + `diagnostics.js` + `style.css` + `login-state.js` + `vendor/cloudbase.full.js`（本地固化 SDK 2.17.5，不再依赖 CDN），无 npm 构建。
 
-### 部署
-1. CloudBase 静态托管：把 `deploy/admin-console/` 全部文件（含 `vendor/` 子目录）上传到静态站点根目录，记下访问域名。
-2. 或 GitHub Pages：把该目录作为 Pages 根目录发布（或用 `/admin-console/` 子路径）。
-3. 云开发控制台 → 环境 → 安全配置 → **Web 安全域名**：加入控制台域名（GitHub Pages 也要加；**只填域名，不带路径**）。
-4. 云函数环境变量：`ADMIN_TOKEN_SECRET`、`ADMIN_BOOTSTRAP_PASSWORD`；改完必须重新部署 `adminAuth` / `adminApi`。
-5. 打开页面（**必须 http/https，不能双击 file://**），环境 ID 已预填 `ordering-d0gyct6z1ff2afebd`，首屏「环境自检」会显示域名探测 HTTP 状态码与逐项修法。
+### 三种访问方式（按推荐顺序）
+
+| 方式 | 入口 | 前提 | 可用性 |
+| --- | --- | --- | --- |
+| **B2 本机网关** | 浏览器打开 `http://127.0.0.1:8787/` | 本机 Node + 环境变量 `WX_APPID` / `WX_APPSECRET` | **可用（仅本机），浏览器主路径** |
+| **C 小程序内平台管理** | 小程序菜单页 →「平台管理」（仅平台管理员 openid 可见） | 管理员账号 + 密码绑定当前微信 openid | **可用，手机端主路径** |
+| B1 HTTP 访问服务 | 云开发控制台「HTTP 访问服务」 | 控制台提供该扩展能力 | **不可用**（该环境控制台无此能力） |
+| A 浏览器匿名登录 | 浏览器管理台「小程序云调用」 | 匿名登录接口可用 + Web 安全域名 | **不可用，已停止投入** |
+
+A 不可用的证据（抓包原始响应）：
+
+```json
+{"code":"UNIMPLEMENTED","error":"unimplemented","error_code":12,
+ "error_description":"Method Not Allowed",
+ "requestId":"91bddf89-a962-4235-85b7-12b7aa90df92"}
+```
+
+这是服务端未实现浏览器匿名登录接口，**不是 Web 安全域名问题**。管理台首屏会直接提示；网关托管页面时自动隐藏连接方式/地址/口令输入。
+
+### 浏览器管理台三步（B2 本机网关）
+1. 配置环境变量（PowerShell，仅当前窗口）：`$env:WX_APPID="wx..."`、`$env:WX_APPSECRET="..."`（获取：小程序后台 → 开发管理 → 开发设置）。
+2. 启动网关：`cd tools\admin-gateway` → `start.bat`（或 `npm start`）。未配上面两项会直接报错并打印获取路径。
+3. 浏览器打开 `http://127.0.0.1:8787/`：网关同源托管静态页并注入配置（`window.__GATEWAY__ = { mode:'gateway', base:'/api', token }`），页面顶部显示「本地网关 · 已连接」，直接输入管理员账号密码即可。
+
+网关把浏览器请求转成微信云开发 HTTP API（`cgi-bin/token` → `tcb/invokecloudfunction`），AppSecret 只在网关进程内；只监听 `127.0.0.1`，不要绑定 `0.0.0.0`、不要把 8787 映射到公网。排障见 `deploy/admin-console/README.md` 第 6 节（网关未启动 / AppSecret 错误 / 40001 / 42001 等）。
+
+### 诊断信息
+登录失败时页面显示完整 `code · message · 原始对象`（不再出现「未知错误」），并提供「复制错误信息」「复制诊断信息」。诊断信息含 SDK 版本、`location.origin`、环境 ID、匿名登录结果与原始错误、当前连接方式与地址、最后一次调用错误对象、页面全局错误。
+
+### 小程序内平台管理
+- 页面：`miniprogram/pages/platform-admin/index/index`（商家列表/新建/编辑/启停/绑员工）、`detail/detail`（单商家健康/开关/修复/员工）、`audit/audit`（审计）
+- 守卫：`miniprogram/utils/platform-guard.js`，校验失败且不可绑定 → toast + `reLaunch` 回菜单，不调用 `adminApi`
+- 鉴权：`adminAuth.wxLogin` 用当前 openid 匹配 `admins.openid`；首次可用 `ADMIN_BOOTSTRAP_PASSWORD` 创建并绑定；也支持管理员账号密码把 openid 绑到已有记录。小程序内不存 token。
 
 ### 能做什么
 - 商家列表（搜索 / 状态 / 今日订单数 / 员工数）
