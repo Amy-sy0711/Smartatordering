@@ -76,6 +76,15 @@
   padding: 16rpx 0;
 }
 
+.item-img {
+  width: 88rpx;
+  height: 88rpx;
+  border-radius: 12rpx;
+  background: #f2f4f8;
+  flex-shrink: 0;
+  margin-right: 16rpx;
+}
+
 .item-main {
   flex: 1;
 }

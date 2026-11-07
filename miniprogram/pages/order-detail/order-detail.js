@@ -1,5 +1,6 @@
 const api = require('../../utils/data-source')
 const statusUtil = require('../../utils/status')
+const imagePreview = require('../../utils/image-preview')
 
 Page({
   data: {
@@ -14,6 +15,7 @@ Page({
 
   onLoad(query) {
     this.orderId = decodeURIComponent((query && query.id) || '')
+    this.imageFailedUrls = []
     this.setData({
       fromMerchant: !!(query && query.from === 'merchant'),
       autoPay: !!(query && query.pay === '1')
@@ -55,6 +57,18 @@ Page({
   onPayChanged() {
     this.load()
     setTimeout(() => this.load(), 800)
+  },
+
+  onDishImageTap(e) {
+    const url = e.currentTarget.dataset.url
+    imagePreview.previewDish(url, this.imageFailedUrls || [])
+  },
+
+  onDishImageError(e) {
+    const url = (e.currentTarget && e.currentTarget.dataset.url) || ''
+    if (!url) return
+    this.imageFailedUrls = this.imageFailedUrls || []
+    if (this.imageFailedUrls.indexOf(url) < 0) this.imageFailedUrls.push(url)
   },
 
   copyOrderNo() {

@@ -3,6 +3,8 @@ const cartUtil = require('../../utils/cart')
 const payment = require('../../utils/payment')
 const safe = require('../../utils/safe')
 const merchantContext = require('../../utils/merchant-context')
+const categoryScroll = require('../../utils/category-scroll')
+const imagePreview = require('../../utils/image-preview')
 
 Page({
   data: {
@@ -19,6 +21,7 @@ Page({
     cartCount: 0,
     cartTotalText: '0.00',
     isMerchant: false,
+    isPlatformAdmin: false,
     canBootstrap: false,
     modeLabel: '',
     isLocal: false,
@@ -29,11 +32,22 @@ Page({
     errorMsg: '',
     errorHint: '',
     pickerVisible: false,
-    pickerDish: null
+    pickerDish: null,
+    showRail: false,
+    activeCategory: 0,
+    menuAreaHeight: 0,
+    tailHeight: 0,
+    scrollIntoView: '',
+    railScrollIntoView: '',
+    refreshing: false
   },
 
   onLoad(options) {
     this.dishMap = {}
+    this.categoryOffsets = []
+    this.imageFailedUrls = []
+    this.lastScrollTop = 0
+    this.suppressSpy = false
     const fromMerchant = !!(options && options.from === 'merchant')
     // 商家预览顾客端时同样脱敏；真实顾客才显示完整排障信息
     api.setErrorPrivacy(fromMerchant)
@@ -43,7 +57,8 @@ Page({
     const globalData = (app && app.globalData) || {}
     this.setData({
       identity: globalData.identity || null,
-      identityError: globalData.identityError || null
+      identityError: globalData.identityError || null,
+      isPlatformAdmin: !!(globalData.identity && globalData.identity.role === 'admin')
     })
     this.refresh(true)
   },
@@ -54,6 +69,15 @@ Page({
 
   onPullDownRefresh() {
     this.refresh(false).then(() => wx.stopPullDownRefresh()).catch(() => wx.stopPullDownRefresh())
+  },
+
+  /** 列表在 scroll-view 内，页面级下拉刷新可能触发不到，补一个列表内下拉刷新 */
+  onRefresherRefresh() {
+    this.setData({ refreshing: true })
+    this.refresh(false).then(
+      () => this.setData({ refreshing: false }),
+      () => this.setData({ refreshing: false })
+    )
   },
 
   refresh(showLoading) {
@@ -102,27 +126,40 @@ Page({
           }
         })
         this.dishMap = dishMap
-        this.setData({
-          loading: false,
-          loadState: menu.published ? 'ready' : 'empty',
-          published: !!menu.published,
-          menu: {
-            title: safe.safeText(menu.title, '今日菜单'),
+        // 菜单数据变化后旧偏移全部失效，等渲染完成再重新测量
+        this.categoryOffsets = []
+        this.lastScrollTop = 0
+        this.setData(
+          {
+            loading: false,
+            loadState: menu.published ? 'ready' : 'empty',
+            published: !!menu.published,
+            menu: {
+              title: safe.safeText(menu.title, '今日菜单'),
+              dateLabel: safe.safeText(menu.dateLabel, ''),
+              date: safe.safeText(menu.date, '')
+            },
+            categories,
+            showRail: categoryScroll.shouldShowRail(categories.length),
+            activeCategory: 0,
+            scrollIntoView: '',
+            railScrollIntoView: '',
+            slots,
+            totalDishes: safe.safeInt(menu.totalDishes, 0),
             dateLabel: safe.safeText(menu.dateLabel, ''),
-            date: safe.safeText(menu.date, '')
+            shop: menu.shop || null,
+            paySettings: menu.payment || payment.FALLBACK_SETTINGS,
+            isMerchant: !!access.isMerchant,
+            isPlatformAdmin: access.role === 'admin',
+            canBootstrap: false,
+            errorCode: '',
+            errorMsg: '',
+            errorHint: ''
           },
-          categories,
-          slots,
-          totalDishes: safe.safeInt(menu.totalDishes, 0),
-          dateLabel: safe.safeText(menu.dateLabel, ''),
-          shop: menu.shop || null,
-          paySettings: menu.payment || payment.FALLBACK_SETTINGS,
-          isMerchant: !!access.isMerchant,
-          canBootstrap: false,
-          errorCode: '',
-          errorMsg: '',
-          errorHint: ''
-        })
+          () => {
+            if (menu.published) this.scheduleMeasure()
+          }
+        )
         this.refreshCart()
       })
       .catch((err) => {
@@ -136,6 +173,7 @@ Page({
           loadState: 'load_failed',
           published: false,
           isMerchant: false,
+          isPlatformAdmin: false,
           canBootstrap: false,
           errorCode: merchantPreview ? '' : info.code,
           errorMsg: merchantPreview ? '系统暂时不可用' : info.message,
@@ -156,6 +194,123 @@ Page({
 
   retry() {
     this.refresh(true)
+  },
+
+  /* 左侧分类栏 ↔ 右侧列表滚动联动 */
+
+  scheduleMeasure() {
+    if (this.measureTimer) clearTimeout(this.measureTimer)
+    this.measureTimer = setTimeout(() => this.measureLayout(), 60)
+  },
+
+  /** 先按视口高度给右侧列表定高，再测量各分类标题相对滚动容器的偏移 */
+  measureLayout() {
+    if (!this.data.categories.length) {
+      this.categoryOffsets = []
+      return
+    }
+    const info = (wx.getWindowInfo ? wx.getWindowInfo() : wx.getSystemInfoSync()) || {}
+    const winHeight = Number(info.windowHeight) || 0
+    const winWidth = Number(info.windowWidth) || 375
+    const query = wx.createSelectorQuery().in(this)
+    query.select('.menu-body').boundingClientRect()
+    query.exec((res) => {
+      const rect = res && res[0]
+      if (!rect || !winHeight) {
+        this.measureCategoryOffsets()
+        return
+      }
+      // 给底部悬浮购物车留空间（约 150rpx）+ 20px 安全距离
+      const bottomSpace = Math.round((150 * winWidth) / 750) + 20
+      const height = Math.max(Math.round(winHeight - rect.top - bottomSpace), 260)
+      this.setData({ menuAreaHeight: height, tailHeight: Math.max(height - 60, 0) }, () => {
+        this.measureCategoryOffsets()
+      })
+    })
+  },
+
+  measureCategoryOffsets() {
+    if (!this.data.categories.length) {
+      this.categoryOffsets = []
+      return
+    }
+    const query = wx.createSelectorQuery().in(this)
+    query.select('.dish-scroll').boundingClientRect()
+    query.selectAll('.cat-title').boundingClientRect()
+    query.exec((res) => {
+      const container = res && res[0]
+      const titles = (res && res[1]) || []
+      if (!container || !titles.length) {
+        this.categoryOffsets = []
+        return
+      }
+      this.categoryOffsets = categoryScroll.computeOffsets(
+        container.top,
+        titles.map((item) => item && item.top),
+        this.lastScrollTop
+      )
+    })
+  },
+
+  /** 滚动节流：每 100ms 只比对一次；点击跳转期间暂停反向高亮 */
+  onDishScroll(e) {
+    this.lastScrollTop = (e.detail && e.detail.scrollTop) || 0
+    if (this.suppressSpy || this.spyTimer) return
+    this.spyTimer = setTimeout(() => {
+      this.spyTimer = null
+      this.syncActiveCategory(this.lastScrollTop)
+    }, 100)
+  },
+
+  syncActiveCategory(scrollTop) {
+    const index = categoryScroll.computeActiveIndex(this.categoryOffsets, scrollTop, 12)
+    if (index < 0 || index === this.data.activeCategory) return
+    this.setData({ activeCategory: index, railScrollIntoView: 'rail-' + index })
+  },
+
+  onCategoryTap(e) {
+    const index = Number(e.currentTarget.dataset.index)
+    const total = this.data.categories.length
+    if (!total || index < 0 || index >= total) return
+    if (this.spyTimer) {
+      clearTimeout(this.spyTimer)
+      this.spyTimer = null
+    }
+    this.suppressSpy = true
+    this.setData({ activeCategory: index, railScrollIntoView: 'rail-' + index, scrollIntoView: '' }, () => {
+      this.setData({ scrollIntoView: 'cat-' + index })
+    })
+    if (this.suppressTimer) clearTimeout(this.suppressTimer)
+    this.suppressTimer = setTimeout(() => {
+      this.suppressSpy = false
+      this.syncActiveCategory(this.lastScrollTop)
+    }, 700)
+  },
+
+  /* 菜品图预览：有图才弹；加载失败给轻提示 */
+
+  onDishImageTap(e) {
+    const url = e.currentTarget.dataset.url
+    imagePreview.previewDish(url, this.imageFailedUrls || [])
+  },
+
+  onDishImageError(e) {
+    const url = (e.currentTarget && e.currentTarget.dataset.url) || ''
+    if (!url) return
+    this.imageFailedUrls = this.imageFailedUrls || []
+    if (this.imageFailedUrls.indexOf(url) < 0) this.imageFailedUrls.push(url)
+  },
+
+  /** 图片加载会改变标题位置，加载完成后重算一次偏移 */
+  onDishImageLoad() {
+    if (this.imageMeasureTimer) clearTimeout(this.imageMeasureTimer)
+    this.imageMeasureTimer = setTimeout(() => this.measureCategoryOffsets(), 150)
+  },
+
+  onUnload() {
+    ['measureTimer', 'spyTimer', 'suppressTimer', 'imageMeasureTimer'].forEach((key) => {
+      if (this[key]) clearTimeout(this[key])
+    })
   },
 
   copyError() {
@@ -216,6 +371,10 @@ Page({
 
   goOrders() {
     wx.navigateTo({ url: '/pages/orders/orders' })
+  },
+
+  goPlatformAdmin() {
+    wx.navigateTo({ url: '/pages/platform-admin/index/index' })
   },
 
   backToBoard() {

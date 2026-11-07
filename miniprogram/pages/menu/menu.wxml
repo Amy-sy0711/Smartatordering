@@ -61,32 +61,88 @@
   </view>
 
   <block wx:if="{{loadState === 'ready'}}">
-    <view class="cat" wx:for="{{categories}}" wx:key="name" wx:for-item="cat">
-      <view class="cat-title">{{cat.name}}</view>
-      <view
-        class="dish {{dish.soldOut ? 'dish--soldout' : ''}}"
-        wx:for="{{cat.dishes}}"
-        wx:key="_id"
-        wx:for-item="dish"
-        data-id="{{dish._id}}"
-        bindtap="onDishTap"
+    <view class="empty" wx:if="{{!categories.length}}">
+      <view class="empty-title">今日暂无菜品</view>
+      <view class="empty-sub">商家发布菜品后下拉刷新即可点餐</view>
+    </view>
+
+    <view class="menu-body" wx:else>
+      <scroll-view
+        class="cat-rail"
+        wx:if="{{showRail}}"
+        scroll-y
+        scroll-into-view="{{railScrollIntoView}}"
+        style="height: {{menuAreaHeight}}px;"
       >
-        <image class="dish-img" wx:if="{{dish.imageUrl}}" src="{{dish.imageUrl}}" mode="aspectFill"></image>
-        <view class="dish-img dish-img--ph" wx:else>{{dish.initial}}</view>
-        <view class="dish-body">
-          <view class="dish-name">{{dish.name}}</view>
-          <view class="dish-spec" wx:if="{{dish.specs.length}}">可选规格 {{dish.specs.length}} 组</view>
-          <view class="dish-price">¥{{dish.priceText}}</view>
+        <view
+          class="cat-rail-item {{activeCategory === index ? 'cat-rail-item--active' : ''}}"
+          wx:for="{{categories}}"
+          wx:key="name"
+          wx:for-index="index"
+          id="rail-{{index}}"
+          data-index="{{index}}"
+          bindtap="onCategoryTap"
+        >{{item.name}}</view>
+      </scroll-view>
+
+      <scroll-view
+        class="dish-scroll {{showRail ? '' : 'dish-scroll--full'}}"
+        scroll-y
+        scroll-into-view="{{scrollIntoView}}"
+        scroll-with-animation
+        bindscroll="onDishScroll"
+        refresher-enabled="{{true}}"
+        refresher-triggered="{{refreshing}}"
+        bindrefresherrefresh="onRefresherRefresh"
+        style="height: {{menuAreaHeight}}px;"
+      >
+        <view
+          class="cat"
+          wx:for="{{categories}}"
+          wx:key="name"
+          wx:for-item="cat"
+          wx:for-index="catIndex"
+          id="cat-{{catIndex}}"
+        >
+          <view class="cat-title" id="cat-title-{{catIndex}}">{{cat.name}}</view>
+          <view
+            class="dish {{dish.soldOut ? 'dish--soldout' : ''}}"
+            wx:for="{{cat.dishes}}"
+            wx:key="_id"
+            wx:for-item="dish"
+            data-id="{{dish._id}}"
+            bindtap="onDishTap"
+          >
+            <image
+              class="dish-img"
+              wx:if="{{dish.imageUrl}}"
+              src="{{dish.imageUrl}}"
+              mode="aspectFill"
+              data-id="{{dish._id}}"
+              data-url="{{dish.imageUrl}}"
+              catchtap="onDishImageTap"
+              bindload="onDishImageLoad"
+              binderror="onDishImageError"
+            ></image>
+            <view class="dish-img dish-img--ph" wx:else>{{dish.initial}}</view>
+            <view class="dish-body">
+              <view class="dish-name">{{dish.name}}</view>
+              <view class="dish-spec" wx:if="{{dish.specs.length}}">可选规格 {{dish.specs.length}} 组</view>
+              <view class="dish-price">¥{{dish.priceText}}</view>
+            </view>
+            <view class="dish-add" wx:if="{{!dish.soldOut}}">＋</view>
+            <view class="dish-sold" wx:else>售罄</view>
+          </view>
         </view>
-        <view class="dish-add" wx:if="{{!dish.soldOut}}">＋</view>
-        <view class="dish-sold" wx:else>售罄</view>
-      </view>
+        <view class="dish-scroll-tail" style="height: {{tailHeight}}px;"></view>
+      </scroll-view>
     </view>
   </block>
 
   <!-- 顾客端不提供任何进入商家端的入口；商家身份由启动 whoami 自动识别 -->
   <view class="footer-links">
     <text class="footer-link" bindtap="goOrders">我的订单</text>
+    <text class="footer-link" wx:if="{{isPlatformAdmin}}" bindtap="goPlatformAdmin">平台管理</text>
   </view>
   <view class="mode-note">
     <text>当前：{{modeLabel || '云端模式'}}</text>

@@ -8,6 +8,15 @@
         <text class="link" bindtap="clearCart">清空</text>
       </view>
       <view class="line" wx:for="{{lines}}" wx:key="key">
+        <image
+          class="line-img"
+          wx:if="{{item.imageUrl}}"
+          src="{{item.imageUrl}}"
+          mode="aspectFill"
+          data-url="{{item.imageUrl}}"
+          catchtap="onDishImageTap"
+          binderror="onDishImageError"
+        ></image>
         <view class="line-main">
           <view class="line-name">
             {{item.name}}

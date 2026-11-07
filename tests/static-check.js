@@ -532,6 +532,20 @@ const platformAppJsonText = read(path.join(MP_ROOT, 'app.json'))
 })
 if (read(path.join(MP_ROOT, 'pages', 'menu', 'menu.wxml')).indexOf('goPlatformAdmin') < 0) fail('菜单页缺少平台管理入口（仅管理员可见）')
 
+/* 菜单左栏联动与菜品图预览 */
+const menuWxml = read(path.join(MP_ROOT, 'pages', 'menu', 'menu.wxml'))
+const menuJs = read(path.join(MP_ROOT, 'pages', 'menu', 'menu.js'))
+if (menuWxml.indexOf('cat-rail') < 0) fail('菜单页缺少左侧分类栏')
+if (menuWxml.indexOf('bindscroll="onDishScroll"') < 0) fail('菜单页缺少列表滚动监听')
+if (menuWxml.indexOf('scroll-into-view') < 0) fail('菜单页缺少点击分类后的滚动定位')
+if (menuWxml.indexOf('onDishImageTap') < 0) fail('菜单页菜品图缺少预览点击')
+if (menuJs.indexOf('categoryScroll.computeOffsets') < 0) fail('菜单页未测量分类标题偏移')
+if (menuJs.indexOf('imagePreview.previewDish') < 0) fail('菜单页未使用图片预览工具')
+if (!fs.existsSync(path.join(MP_ROOT, 'utils', 'category-scroll.js'))) fail('缺少工具：utils/category-scroll.js')
+if (!fs.existsSync(path.join(MP_ROOT, 'utils', 'image-preview.js'))) fail('缺少工具：utils/image-preview.js')
+if (read(path.join(MP_ROOT, 'pages', 'cart', 'cart.wxml')).indexOf('onDishImageTap') < 0) fail('购物车菜品图缺少预览点击')
+if (read(path.join(MP_ROOT, 'pages', 'order-detail', 'order-detail.js')).indexOf('imagePreview.previewDish') < 0) fail('订单详情未接入图片预览')
+
 /* ------------------------------- 结果 ------------------------------- */
 console.log('静态校验统计：')
 console.log('  JS 文件        ' + stats.js)

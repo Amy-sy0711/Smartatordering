@@ -20,6 +20,15 @@
   min-width: 0;
 }
 
+.line-img {
+  width: 96rpx;
+  height: 96rpx;
+  border-radius: 12rpx;
+  background: #f2f4f8;
+  flex-shrink: 0;
+  margin-right: 16rpx;
+}
+
 .line-name {
   font-size: 28rpx;
   font-weight: 600;

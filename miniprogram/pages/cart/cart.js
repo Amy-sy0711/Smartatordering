@@ -2,6 +2,7 @@ const api = require('../../utils/data-source')
 const cartUtil = require('../../utils/cart')
 const money = require('../../utils/money')
 const payment = require('../../utils/payment')
+const imagePreview = require('../../utils/image-preview')
 
 const MAX_REMARK = 60
 
@@ -27,7 +28,20 @@ Page({
   },
 
   onShow() {
+    this.imageFailedUrls = []
     this.load()
+  },
+
+  onDishImageTap(e) {
+    const url = e.currentTarget.dataset.url
+    imagePreview.previewDish(url, this.imageFailedUrls || [])
+  },
+
+  onDishImageError(e) {
+    const url = (e.currentTarget && e.currentTarget.dataset.url) || ''
+    if (!url) return
+    this.imageFailedUrls = this.imageFailedUrls || []
+    if (this.imageFailedUrls.indexOf(url) < 0) this.imageFailedUrls.push(url)
   },
 
   load() {
@@ -54,6 +68,8 @@ Page({
           const unitCents = unitPriceCents + (line.specDeltaCents || 0)
           return Object.assign({}, line, {
             invalid,
+            // 优先用菜单最新图片，菜单里已下架时回退到加购时存下的图
+            imageUrl: (dish && dish.imageUrl) || line.imageUrl || '',
             unitPriceCents,
             unitText: money.formatCents(unitCents),
             lineTotalText: money.formatCents(unitCents * line.qty)

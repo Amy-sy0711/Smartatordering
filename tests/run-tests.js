@@ -1518,6 +1518,57 @@ test('商家导出只包含本租户订单', () => {
   assert.ok(result.csv.indexOf('牛肉饭') >= 0)
 })
 
+/* -------------------- 菜单左栏联动 / 菜品图预览 -------------------- */
+const categoryScroll = require(path.join(MINI_UTILS, 'category-scroll'))
+const imagePreview = require(path.join(MINI_UTILS, 'image-preview'))
+
+test('分类偏移换算：相对滚动容器且随 scrollTop 还原', () => {
+  const atTop = categoryScroll.computeOffsets(100, [100, 500, 900], 0)
+  assert.deepStrictEqual(atTop.map((item) => item.offset), [0, 400, 800])
+  // 已滚动 300 时标题视口位置整体上移，位移仍应是 0/400/800
+  const scrolled = categoryScroll.computeOffsets(100, [-200, 200, 600], 300)
+  assert.deepStrictEqual(scrolled.map((item) => item.offset), [0, 400, 800])
+  // 非法入参不崩
+  assert.deepStrictEqual(categoryScroll.computeOffsets(undefined, [1], 0), [])
+  assert.deepStrictEqual(categoryScroll.computeOffsets(0, ['x', undefined, 240], 0).length, 1)
+})
+
+test('分类索引边界：空分类、单分类、临界滞回', () => {
+  assert.strictEqual(categoryScroll.computeActiveIndex([], 0), -1)
+  assert.strictEqual(categoryScroll.computeActiveIndex(null, 100), -1)
+  assert.strictEqual(categoryScroll.computeActiveIndex([0], 120), 0)
+  const offsets = [0, 400, 800]
+  assert.strictEqual(categoryScroll.computeActiveIndex(offsets, 0), 0)
+  assert.strictEqual(categoryScroll.computeActiveIndex(offsets, 380, 12), 0, '未越过标题前保持原分类')
+  assert.strictEqual(categoryScroll.computeActiveIndex(offsets, 412, 12), 1)
+  assert.strictEqual(categoryScroll.computeActiveIndex(offsets, 800), 2)
+  assert.strictEqual(categoryScroll.computeActiveIndex(offsets, 99999), 2, '到底部仍停在最后一个分类')
+  assert.strictEqual(categoryScroll.computeActiveIndex([{ offset: 0 }, { offset: 300 }], 300), 1)
+})
+
+test('左栏显隐：0/1 个分类隐藏，多个分类显示', () => {
+  assert.strictEqual(categoryScroll.shouldShowRail(0), false)
+  assert.strictEqual(categoryScroll.shouldShowRail(1), false)
+  assert.strictEqual(categoryScroll.shouldShowRail(2), true)
+  assert.strictEqual(categoryScroll.shouldShowRail(undefined), false)
+})
+
+test('图片预览参数：只传当前菜品图，current 指向被点项', () => {
+  const ok = imagePreview.previewArgs(' https://cdn.example.com/a.jpg ', [])
+  assert.strictEqual(ok.ok, true)
+  assert.deepStrictEqual(ok.urls, ['https://cdn.example.com/a.jpg'])
+  assert.strictEqual(ok.current, 'https://cdn.example.com/a.jpg')
+  const empty = imagePreview.previewArgs('', [])
+  assert.strictEqual(empty.ok, false)
+  assert.strictEqual(empty.reason, 'NO_IMAGE')
+  assert.deepStrictEqual(empty.urls, [])
+  const failed = imagePreview.previewArgs('https://cdn.example.com/b.jpg', ['https://cdn.example.com/b.jpg'])
+  assert.strictEqual(failed.ok, false)
+  assert.strictEqual(failed.reason, 'LOAD_FAILED')
+  const nonString = imagePreview.previewArgs(null, [])
+  assert.strictEqual(nonString.ok, false)
+})
+
 /* ------------------------------ 汇总 ------------------------------ */
 async function printSummary() {
   await flushAsyncTests()

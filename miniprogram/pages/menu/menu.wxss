@@ -222,6 +222,62 @@
   line-height: 64rpx;
 }
 
+.menu-body {
+  display: flex;
+  align-items: flex-start;
+}
+
+/* 左栏固定约 88px（176rpx），分类多时可纵向滚动 */
+.cat-rail {
+  width: 176rpx;
+  flex-shrink: 0;
+  background: #f5f6f9;
+  border-radius: 16rpx;
+  overflow: hidden;
+}
+
+.cat-rail-item {
+  position: relative;
+  padding: 24rpx 12rpx;
+  font-size: 24rpx;
+  color: #5c6472;
+  line-height: 1.35;
+  text-align: center;
+  word-break: break-all;
+}
+
+.cat-rail-item--active {
+  background: #ffffff;
+  color: #e85d04;
+  font-weight: 700;
+}
+
+.cat-rail-item--active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 6rpx;
+  height: 40rpx;
+  margin-top: -20rpx;
+  background: #e85d04;
+  border-radius: 0 6rpx 6rpx 0;
+}
+
+.dish-scroll {
+  flex: 1;
+  min-width: 0;
+  margin-left: 16rpx;
+}
+
+.dish-scroll--full {
+  margin-left: 0;
+}
+
+.dish-scroll-tail {
+  width: 100%;
+}
+
 .cat {
   margin-bottom: 24rpx;
 }

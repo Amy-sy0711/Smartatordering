@@ -26,6 +26,15 @@
     <view class="card">
       <view class="section-title">菜品明细</view>
       <view class="item" wx:for="{{order.items}}" wx:key="dishId">
+        <image
+          class="item-img"
+          wx:if="{{item.imageUrl}}"
+          src="{{item.imageUrl}}"
+          mode="aspectFill"
+          data-url="{{item.imageUrl}}"
+          bindtap="onDishImageTap"
+          binderror="onDishImageError"
+        ></image>
         <view class="item-main">
           <view class="item-name">{{item.name}}</view>
           <view class="item-spec" wx:if="{{item.specText}}">{{item.specText}} <text class="item-delta">{{item.priceDeltaText}}</text></view>
