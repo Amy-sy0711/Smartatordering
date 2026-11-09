@@ -612,6 +612,58 @@ test('local 转账闭环：pending_pay → pending_confirm → paid → accepted
   assert.strictEqual(backend.run('order.detail', { orderId }).status, 'completed')
 })
 
+test('local 商家可直接对 pending_pay 确认收款，重复确认被拒', () => {
+  const { backend } = makeLocal()
+  const orderId = localCreate(backend, [{ dishId: 'dish_drink', qty: 1, specOptionIds: [] }]).orderId
+  assert.strictEqual(backend.run('order.detail', { orderId }).status, 'pending_pay')
+  const confirmed = backend.run('merchant.confirmReceipt', { orderId })
+  assert.strictEqual(confirmed.order.status, 'paid')
+  assert.strictEqual(confirmed.record.amountCents, 500)
+  expectCode(() => backend.run('merchant.confirmReceipt', { orderId }), 'ILLEGAL_TRANSITION')
+  // 确认收款后才允许接单
+  assert.strictEqual(backend.run('merchant.transition', { orderId, action: 'accept' }).status, 'accepted')
+})
+
+test('local 出餐生成取餐码：0001 起自增，取餐后仍展示，重复出餐不重号', () => {
+  const { backend } = makeLocal()
+  const first = localCreate(backend, [{ dishId: 'dish_drink', qty: 1, specOptionIds: [] }]).orderId
+  const second = localCreate(backend, [{ dishId: 'dish_drink', qty: 2, specOptionIds: [] }]).orderId
+
+  assert.strictEqual(backend.run('order.detail', { orderId: first }).pickupCode, '', '未出餐不展示取餐码')
+  backend.run('merchant.confirmReceipt', { orderId: first })
+  backend.run('merchant.transition', { orderId: first, action: 'accept' })
+  assert.strictEqual(backend.run('order.detail', { orderId: first }).pickupCode, '', '备餐中不展示取餐码')
+  const readyFirst = backend.run('merchant.transition', { orderId: first, action: 'ready' })
+  assert.strictEqual(readyFirst.pickupCode, '0001')
+  assert.strictEqual(backend.run('order.detail', { orderId: first }).pickupCode, '0001')
+
+  backend.run('merchant.confirmReceipt', { orderId: second })
+  backend.run('merchant.transition', { orderId: second, action: 'accept' })
+  assert.strictEqual(backend.run('merchant.transition', { orderId: second, action: 'ready' }).pickupCode, '0002')
+
+  // 重复点「出餐」被状态机拒绝，且不改变已生成取餐码
+  expectCode(() => backend.run('merchant.transition', { orderId: first, action: 'ready' }), 'ILLEGAL_TRANSITION')
+  assert.strictEqual(backend.run('order.detail', { orderId: first }).pickupCode, '0001')
+
+  const done = backend.run('merchant.transition', { orderId: first, action: 'complete' })
+  assert.strictEqual(done.pickupCode, '0001', '已取餐后仍保留取餐码')
+})
+
+test('local 待取餐文案：顾客端 statusText 使用新语义', () => {
+  const { backend } = makeLocal()
+  const orderId = localCreate(backend, [{ dishId: 'dish_drink', qty: 1, specOptionIds: [] }]).orderId
+  assert.strictEqual(backend.run('order.detail', { orderId }).customerStatusText, '待支付')
+  backend.run('order.markTransferred', { orderId })
+  assert.strictEqual(backend.run('order.detail', { orderId }).customerStatusText, '待商家确认')
+  backend.run('merchant.confirmReceipt', { orderId })
+  assert.strictEqual(backend.run('order.detail', { orderId }).customerStatusText, '已支付备餐中')
+  backend.run('merchant.transition', { orderId, action: 'accept' })
+  backend.run('merchant.transition', { orderId, action: 'ready' })
+  assert.strictEqual(backend.run('order.detail', { orderId }).customerStatusText, '待取餐')
+  backend.run('merchant.transition', { orderId, action: 'complete' })
+  assert.strictEqual(backend.run('order.detail', { orderId }).customerStatusText, '已取餐')
+})
+
 test('local 打包清单按菜品+规格聚合数量', () => {
   const { backend } = makeLocal()
   const a = localCreate(backend, [
@@ -1567,6 +1619,198 @@ test('图片预览参数：只传当前菜品图，current 指向被点项', () 
   assert.strictEqual(failed.reason, 'LOAD_FAILED')
   const nonString = imagePreview.previewArgs(null, [])
   assert.strictEqual(nonString.ok, false)
+})
+
+/* -------------------- 菜单页购物车清单弹层 -------------------- */
+console.log('\n[菜单页购物车清单：分行、增减、合计、下架拦截]')
+
+function withWxStorage(fn) {
+  const store = {}
+  global.wx = {
+    getStorageSync: (key) => (key in store ? store[key] : ''),
+    setStorageSync: (key, value) => { store[key] = value },
+    showToast: () => {}
+  }
+  try {
+    return fn(store)
+  } finally {
+    delete global.wx
+  }
+}
+
+const cartSheet = require(path.join(MINI_UTILS, 'cart-sheet'))
+const cartUtil = require(path.join(MINI_UTILS, 'cart'))
+
+test('同菜品不同规格分行显示，单价含规格加价', () => {
+  withWxStorage(() => {
+    cartUtil.add({ dishId: 'd1', name: '牛肉面', specOptionIds: ['s1'], specText: '大份', specDeltaCents: 200, unitPriceCents: 1200, qty: 1 })
+    cartUtil.add({ dishId: 'd1', name: '牛肉面', specOptionIds: ['s2'], specText: '小份', specDeltaCents: 0, unitPriceCents: 1200, qty: 2 })
+    const rows = cartSheet.buildRows(cartUtil.load(), { d1: { _id: 'd1', imageUrl: 'https://cdn/x.jpg' } })
+    assert.strictEqual(rows.length, 2, '不同规格不能合并')
+    assert.strictEqual(rows[0].specText, '大份')
+    assert.strictEqual(rows[1].specText, '小份')
+    assert.strictEqual(rows[0].unitPriceCents, 1400)
+    assert.strictEqual(rows[0].unitText, '14.00')
+    assert.strictEqual(rows[1].subtotalText, '24.00')
+    assert.strictEqual(rows[0].imageUrl, 'https://cdn/x.jpg', '优先用菜单最新图片')
+    assert.strictEqual(rows[1].available, true)
+  })
+})
+
+test('弹层合计：件数与金额随行实时汇总，空车为空态', () => {
+  const rows = [
+    { qty: 2, unitPriceCents: 1400 },
+    { qty: 1, unitPriceCents: 500 }
+  ]
+  const info = cartSheet.summary(rows)
+  assert.strictEqual(info.count, 3)
+  assert.strictEqual(info.cents, 3300)
+  assert.strictEqual(info.text, '33.00')
+  assert.strictEqual(info.empty, false)
+  const empty = cartSheet.summary([])
+  assert.strictEqual(empty.count, 0)
+  assert.strictEqual(empty.text, '0.00')
+  assert.strictEqual(empty.empty, true)
+})
+
+test('数量增减：减到 0 移除，超上限给出原因不静默截断', () => {
+  withWxStorage(() => {
+    cartUtil.add({ dishId: 'd2', name: '凉皮', specOptionIds: [], specText: '', specDeltaCents: 0, unitPriceCents: 800, qty: 20 })
+    const key = cartUtil.load()[0].key
+    const over = cartSheet.stepQty(key, 1, { d2: {} })
+    assert.strictEqual(over.ok, false)
+    assert.strictEqual(over.reason, 'MAX_QTY')
+    assert.ok(over.message.indexOf('20') >= 0)
+    assert.strictEqual(cartUtil.load()[0].qty, 20, '超上限不改变数量')
+    const minus = cartSheet.stepQty(key, -1, { d2: {} })
+    assert.strictEqual(minus.ok, true)
+    assert.strictEqual(cartUtil.load()[0].qty, 19)
+    const gone = cartSheet.stepQty(key, -19, { d2: {} })
+    assert.strictEqual(gone.ok, true)
+    assert.strictEqual(gone.removed, true)
+    assert.strictEqual(cartUtil.load().length, 0)
+  })
+})
+
+test('下架/售罄菜品：标记不可加，增加被拒并给出原因', () => {
+  withWxStorage(() => {
+    cartUtil.add({ dishId: 'd3', name: '售罄菜', specOptionIds: [], specText: '', specDeltaCents: 0, unitPriceCents: 900, qty: 1 })
+    cartUtil.add({ dishId: 'd4', name: '下架菜', specOptionIds: [], specText: '', specDeltaCents: 0, unitPriceCents: 700, qty: 1 })
+    const dishMap = { d3: { _id: 'd3', soldOut: true } }
+    const rows = cartSheet.buildRows(cartUtil.load(), dishMap)
+    const soldOutRow = rows.filter((row) => row.dishId === 'd3')[0]
+    const offShelfRow = rows.filter((row) => row.dishId === 'd4')[0]
+    assert.strictEqual(soldOutRow.available, false)
+    assert.strictEqual(soldOutRow.stateLabel, '售罄')
+    assert.strictEqual(soldOutRow.canIncrease, false)
+    assert.strictEqual(offShelfRow.available, false)
+    assert.strictEqual(offShelfRow.stateLabel, '已下架')
+    const soldOutTry = cartSheet.stepQty(soldOutRow.key, 1, dishMap)
+    assert.strictEqual(soldOutTry.ok, false)
+    assert.strictEqual(soldOutTry.reason, 'SOLD_OUT')
+    const offShelfTry = cartSheet.stepQty(offShelfRow.key, 1, dishMap)
+    assert.strictEqual(offShelfTry.ok, false)
+    assert.strictEqual(offShelfTry.reason, 'OFF_SHELF')
+    // 下架/售罄仍可减数量或直接删除
+    const minus = cartSheet.stepQty(offShelfRow.key, -1, dishMap)
+    assert.strictEqual(minus.removed, true)
+  })
+})
+
+/* -------------------- 取餐码（原子自增、每日重置、跨商家隔离） -------------------- */
+const pickupCode = require(path.join(CORE, 'pickup-code'))
+
+function memoryPickupStore(seed) {
+  const docs = {}
+  if (seed) Object.keys(seed).forEach((id) => { docs[id] = { seq: seed[id] } })
+  return {
+    docs,
+    async inc(id) {
+      if (!docs[id]) return { updated: 0 }
+      docs[id].seq += 1
+      // 模拟事务内自增：同时返回本事务拿到的新序号
+      return { updated: 1, seq: docs[id].seq }
+    },
+    async add(id, seq) {
+      if (docs[id]) throw new Error('DUPLICATE')
+      docs[id] = { seq: seq || 1 }
+    },
+    async read(id) {
+      return docs[id] ? { seq: docs[id].seq } : null
+    }
+  }
+}
+
+test('取餐码格式：4 位补零，超 9999 保持 5 位并带 warning', () => {
+  assert.strictEqual(pickupCode.formatPickupCode(1), '0001')
+  assert.strictEqual(pickupCode.formatPickupCode(42), '0042')
+  assert.strictEqual(pickupCode.formatPickupCode(9999), '9999')
+  assert.strictEqual(pickupCode.formatPickupCode(10000), '10000')
+  assert.strictEqual(pickupCode.formatPickupCode(0), '')
+  assert.strictEqual(pickupCode.counterId('m1', '20261105'), 'pickup_seq_m1_20261105')
+})
+
+testAsync('取餐码：当日首单 0001，连续三单 0001/0002/0003', async () => {
+  const store = memoryPickupStore()
+  const a = await pickupCode.nextPickupCode(store, 'm1', '20261105')
+  const b = await pickupCode.nextPickupCode(store, 'm1', '20261105')
+  const c = await pickupCode.nextPickupCode(store, 'm1', '20261105')
+  assert.deepStrictEqual([a.code, b.code, c.code], ['0001', '0002', '0003'])
+  assert.deepStrictEqual([a.warning, b.warning, c.warning], ['', '', ''])
+})
+
+testAsync('取餐码：跨天重置回 0001，不同商家互不影响', async () => {
+  const store = memoryPickupStore()
+  await pickupCode.nextPickupCode(store, 'm1', '20261105')
+  await pickupCode.nextPickupCode(store, 'm1', '20261105')
+  const nextDay = await pickupCode.nextPickupCode(store, 'm1', '20261106')
+  assert.strictEqual(nextDay.code, '0001')
+  const otherMerchant = await pickupCode.nextPickupCode(store, 'm2', '20261105')
+  assert.strictEqual(otherMerchant.code, '0001')
+  const again = await pickupCode.nextPickupCode(store, 'm1', '20261105')
+  assert.strictEqual(again.code, '0003', 'm2 的消耗不影响 m1')
+})
+
+testAsync('取餐码：并发自增不重号（20 个并发唯一）', async () => {
+  const store = memoryPickupStore()
+  const results = await Promise.all(
+    Array.from({ length: 20 }, () => pickupCode.nextPickupCode(store, 'm1', '20261105'))
+  )
+  const codes = results.map((item) => item.code)
+  assert.strictEqual(new Set(codes).size, 20, '不允许重号')
+  assert.strictEqual(codes.indexOf('0001') >= 0, true)
+  assert.strictEqual(codes.indexOf('0020') >= 0, true)
+})
+
+testAsync('取餐码：首次创建并发冲突后回读继续自增', async () => {
+  const store = memoryPickupStore()
+  const conflict = {
+    docs: store.docs,
+    async inc(id) {
+      // 模拟：首次自增时文档刚被别人创建完毕，因此更新命中
+      if (!store.docs[id]) store.docs[id] = { seq: 1 }
+      store.docs[id].seq += 1
+      return { updated: 1 }
+    },
+    async add(id) {
+      throw new Error('DUPLICATE')
+    },
+    async read(id) {
+      return store.docs[id] ? { seq: store.docs[id].seq } : null
+    }
+  }
+  const first = await pickupCode.nextPickupCode(conflict, 'm1', '20261105')
+  assert.strictEqual(first.code, '0002', '冲突后应回读已创建的计数并自增')
+})
+
+testAsync('取餐码：超过 9999 继续自增，不回落', async () => {
+  const id = pickupCode.counterId('m1', '20261105')
+  const store = memoryPickupStore({ [id]: 9998 })
+  const a = await pickupCode.nextPickupCode(store, 'm1', '20261105')
+  const b = await pickupCode.nextPickupCode(store, 'm1', '20261105')
+  assert.strictEqual(a.code, '9999')
+  assert.strictEqual(b.code, '10000')
+  assert.ok(b.warning.indexOf('9999') >= 0)
 })
 
 /* ------------------------------ 汇总 ------------------------------ */

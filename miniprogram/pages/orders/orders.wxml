@@ -13,7 +13,13 @@
         <text class="order-no">#{{item.orderNo}}</text>
         <text class="muted order-time">{{item.createdAtText}}</text>
       </view>
-      <text class="tag {{item.statusTag}}">{{item.statusText}}</text>
+      <text class="tag {{item.statusTag}}">{{item.customerStatusText || item.statusText}}</text>
+    </view>
+
+    <view class="pickup-code" wx:if="{{item.pickupCode}}">
+      <text class="pickup-code-label">取餐码</text>
+      <text class="pickup-code-value">{{item.pickupCode}}</text>
+      <text class="pickup-code-tip">{{item.status === 'ready' ? '出示此码到店取餐' : '已取餐'}}</text>
     </view>
 
     <view class="order-body" data-id="{{item.orderId}}" bindtap="goDetail">

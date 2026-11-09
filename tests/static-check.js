@@ -546,6 +546,59 @@ if (!fs.existsSync(path.join(MP_ROOT, 'utils', 'image-preview.js'))) fail('缺�
 if (read(path.join(MP_ROOT, 'pages', 'cart', 'cart.wxml')).indexOf('onDishImageTap') < 0) fail('购物车菜品图缺少预览点击')
 if (read(path.join(MP_ROOT, 'pages', 'order-detail', 'order-detail.js')).indexOf('imagePreview.previewDish') < 0) fail('订单详情未接入图片预览')
 
+/* 菜单页购物车清单弹层 */
+if (menuWxml.indexOf('bindtap="goOrders"') >= 0 && menuWxml.indexOf('cartbar-left') >= 0) {
+  const cartbarBlock = menuWxml.slice(menuWxml.indexOf('class="cartbar"'))
+  const leftBlock = cartbarBlock.slice(0, cartbarBlock.indexOf('</view>'))
+  if (leftBlock.indexOf('goOrders') >= 0) fail('购物车条左侧仍跳订单页（应打开购物车弹层）')
+}
+if (menuWxml.indexOf('openCartSheet') < 0) fail('购物车条左侧未打开购物车清单弹层')
+if (menuWxml.indexOf('cart-sheet-mask') < 0) fail('缺少购物车弹层遮罩')
+if (menuWxml.indexOf('onCartStep') < 0 || menuWxml.indexOf('onCartRemove') < 0) fail('购物车弹层缺少增减/删除操作')
+if (menuJs.indexOf('cartSheet.buildRows') < 0) fail('菜单页未使用 cart-sheet 组装弹层行')
+if (!fs.existsSync(path.join(MP_ROOT, 'utils', 'cart-sheet.js'))) fail('缺少工具：utils/cart-sheet.js')
+
+/* 商家确认收款 + 取餐码 */
+const stateCore = read(path.join(ROOT, 'cloudfunctions', 'api', 'core', 'state.js'))
+if (stateCore.indexOf("confirm: { to: 'paid', from: ['pending_pay', 'pending_confirm'] }") < 0) {
+  fail('状态机：确认收款应支持 pending_pay 与 pending_confirm')
+}
+const merchantHandler = read(path.join(ROOT, 'cloudfunctions', 'api', 'handlers', 'merchant.js'))
+if (merchantHandler.indexOf('pickupCode.nextPickupCode') < 0) fail('商家出餐未分配取餐码')
+if (merchantHandler.indexOf("status: state.STATUS.PENDING_CONFIRM, merchantId") >= 0) {
+  fail('确认收款仍写死只匹配 pending_confirm')
+}
+if (merchantHandler.indexOf("payment_records") < 0 && merchantHandler.indexOf('COL.PAYMENT_RECORDS') < 0) {
+  fail('确认收款未写入收款记录')
+}
+const pickupCore = read(path.join(ROOT, 'cloudfunctions', 'api', 'core', 'pickup-code.js'))
+if (pickupCore.indexOf('_.inc(1)') < 0) fail('取餐码未使用原子自增 _.inc(1)')
+if (pickupCore.indexOf('runTransaction') < 0) fail('取餐码自增缺少事务保护')
+const orderHandler = read(path.join(ROOT, 'cloudfunctions', 'api', 'handlers', 'order.js'))
+if (orderHandler.indexOf('CUSTOMER_STATUS_TEXT') < 0) fail('订单视图缺少顾客端状态文案')
+if (orderHandler.indexOf('pickupCode') < 0) fail('订单视图未返回取餐码')
+if (read(path.join(MP_ROOT, 'pages', 'orders', 'orders.wxml')).indexOf('pickup-code') < 0) {
+  fail('我的订单未展示取餐码')
+}
+if (read(path.join(MP_ROOT, 'pages', 'order-detail', 'order-detail.wxml')).indexOf('order.pickupCode') < 0) {
+  fail('订单详情未展示取餐码')
+}
+const boardWxml = read(path.join(MP_ROOT, 'pages', 'merchant', 'board', 'board.wxml'))
+if (boardWxml.indexOf('确认收款') < 0) fail('商家订单看板缺少「确认收款」按钮')
+const localBackendText = read(path.join(MP_ROOT, 'utils', 'local-backend.js'))
+if (localBackendText.indexOf('pickupCounters') < 0) fail('本地演示后端未实现取餐码计数')
+
+/* 本次需求明确不做订阅消息，相关代码不得出现 */
+const forbiddenSubscribe = ['requestSubscribeMessage', 'subscribeMessage.send', 'SUBSCRIBE_TEMPLATE']
+walk(ROOT, (file) => {
+  if (!/\.(js|json|wxml)$/.test(file)) return
+  if (rel(file).indexOf('tests/') === 0) return
+  const text = read(file)
+  forbiddenSubscribe.forEach((token) => {
+    if (text.indexOf(token) >= 0) fail('不应出现订阅消息实现：' + token + ' in ' + rel(file))
+  })
+})
+
 /* ------------------------------- 结果 ------------------------------- */
 console.log('静态校验统计：')
 console.log('  JS 文件        ' + stats.js)

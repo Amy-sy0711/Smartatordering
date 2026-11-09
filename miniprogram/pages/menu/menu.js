@@ -1,5 +1,6 @@
 const api = require('../../utils/data-source')
 const cartUtil = require('../../utils/cart')
+const cartSheet = require('../../utils/cart-sheet')
 const payment = require('../../utils/payment')
 const safe = require('../../utils/safe')
 const merchantContext = require('../../utils/merchant-context')
@@ -20,6 +21,10 @@ Page({
     paySettings: payment.FALLBACK_SETTINGS,
     cartCount: 0,
     cartTotalText: '0.00',
+    cartSheetVisible: false,
+    cartRows: [],
+    cartSheetCount: 0,
+    cartSheetTotalText: '0.00',
     isMerchant: false,
     isPlatformAdmin: false,
     canBootstrap: false,
@@ -188,8 +193,18 @@ Page({
   },
 
   refreshCart() {
-    const totals = cartUtil.totals(cartUtil.load())
-    this.setData({ cartCount: totals.count, cartTotalText: totals.text })
+    const lines = cartUtil.load()
+    const totals = cartUtil.totals(lines)
+    const patch = { cartCount: totals.count, cartTotalText: totals.text }
+    // 弹层打开时同步重算行与合计，避免和底部条数字不一致
+    if (this.data.cartSheetVisible) {
+      const rows = cartSheet.buildRows(lines, this.dishMap)
+      const info = cartSheet.summary(rows)
+      patch.cartRows = rows
+      patch.cartSheetCount = info.count
+      patch.cartSheetTotalText = info.text
+    }
+    this.setData(patch)
   },
 
   retry() {
@@ -359,6 +374,76 @@ Page({
     this.setData({ pickerVisible: false, pickerDish: null })
     this.refreshCart()
     wx.showToast({ title: '已加入购物车', icon: 'none' })
+  },
+
+  /* 底部购物车条 → 购物车清单弹层 */
+
+  openCartSheet() {
+    const lines = cartUtil.load()
+    if (!lines.length) {
+      wx.showToast({ title: '购物车还是空的', icon: 'none' })
+      return
+    }
+    const rows = cartSheet.buildRows(lines, this.dishMap)
+    const info = cartSheet.summary(rows)
+    this.setData({
+      cartSheetVisible: true,
+      cartRows: rows,
+      cartSheetCount: info.count,
+      cartSheetTotalText: info.text
+    })
+  },
+
+  closeCartSheet() {
+    if (!this.data.cartSheetVisible) return
+    this.setData({ cartSheetVisible: false })
+  },
+
+  /** 遮罩点击关闭；弹层内部点击不关闭 */
+  onCartMaskTap() {
+    this.closeCartSheet()
+  },
+
+  noop() {},
+
+  onCartStep(e) {
+    const dataset = (e.currentTarget && e.currentTarget.dataset) || {}
+    const delta = Number(dataset.delta) || 0
+    const result = cartSheet.stepQty(dataset.key, delta, this.dishMap)
+    if (!result.ok) {
+      if (result.message) wx.showToast({ title: result.message, icon: 'none' })
+      return
+    }
+    this.refreshCart()
+    if (result.removed) {
+      const info = cartSheet.summary(cartSheet.buildRows(result.lines, this.dishMap))
+      if (info.empty) {
+        this.setData({ cartSheetVisible: false })
+        wx.showToast({ title: '购物车已清空', icon: 'none' })
+      }
+    }
+  },
+
+  onCartRemove(e) {
+    const dataset = (e.currentTarget && e.currentTarget.dataset) || {}
+    const list = cartUtil.load().filter((line) => line.key !== dataset.key)
+    cartUtil.save(list)
+    this.refreshCart()
+    if (!list.length) {
+      this.setData({ cartSheetVisible: false })
+      wx.showToast({ title: '购物车已清空', icon: 'none' })
+    }
+  },
+
+  /** 结算仍走原有流程（购物车页确认下单） */
+  onCartCheckout() {
+    if (!cartUtil.load().length) {
+      this.setData({ cartSheetVisible: false })
+      wx.showToast({ title: '购物车还是空的', icon: 'none' })
+      return
+    }
+    this.setData({ cartSheetVisible: false })
+    wx.navigateTo({ url: '/pages/cart/cart' })
   },
 
   goCart() {

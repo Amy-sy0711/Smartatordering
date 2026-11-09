@@ -12,6 +12,38 @@
   justify-content: space-between;
 }
 
+/* 待取餐取餐码（详情页顶部醒目展示） */
+.pickup {
+  margin-top: 20rpx;
+  padding: 20rpx 24rpx;
+  border-radius: 16rpx;
+  background: rgba(255, 255, 255, 0.18);
+  text-align: center;
+}
+
+.pickup-label {
+  font-size: 22rpx;
+  opacity: 0.9;
+}
+
+.pickup-value {
+  margin: 6rpx 0;
+  font-size: 56rpx;
+  font-weight: 700;
+  letter-spacing: 8rpx;
+}
+
+.pickup-tip {
+  font-size: 22rpx;
+  opacity: 0.92;
+}
+
+.pickup-warn {
+  margin-top: 6rpx;
+  font-size: 20rpx;
+  opacity: 0.85;
+}
+
 .status-text {
   font-size: 38rpx;
   font-weight: 600;

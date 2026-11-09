@@ -8,6 +8,7 @@ const money = require('../core/money')
 const packingCore = require('../core/packing')
 const slotsCore = require('../core/slots')
 const state = require('../core/state')
+const pickupCode = require('../core/pickup-code')
 const statsCore = require('../core/stats')
 const paymode = require('../core/paymode')
 const dbLib = require('../lib/db')
@@ -543,7 +544,26 @@ async function transition(ctx) {
     statusHistory: ctx._.push({ status: target, at: now, by: 'merchant' })
   }
   if (target === state.STATUS.ACCEPTED) patch.acceptedAt = now
-  if (target === state.STATUS.READY) patch.readyAt = now
+  if (target === state.STATUS.READY) {
+    patch.readyAt = now
+    // 出餐完成 → 待取餐：原子分配当日取餐码；已有码则复用（幂等，不重复占号）
+    if (order.pickupCode) {
+      patch.pickupCode = order.pickupCode
+      patch.pickupCodeSeq = order.pickupCodeSeq || 0
+      patch.pickupCodeDate = order.pickupCodeDate || order.date
+    } else {
+      const allocated = await pickupCode.nextPickupCode(
+        pickupCode.dbStore(ctx.db, ctx._, COL.COUNTERS),
+        merchantId,
+        order.date || dates.shanghaiDateKey()
+      )
+      patch.pickupCode = allocated.code
+      patch.pickupCodeSeq = allocated.seq
+      patch.pickupCodeDate = order.date
+      patch.pickupCodeAt = now
+      if (allocated.warning) patch.pickupCodeWarning = allocated.warning
+    }
+  }
   if (target === state.STATUS.COMPLETED) patch.completedAt = now
   if (target === state.STATUS.CANCELED) {
     patch.canceledAt = now
@@ -567,7 +587,7 @@ async function transition(ctx) {
 }
 
 /**
- * 商家确认已收款（pending_confirm → paid），并落一条收款记录用于对账。
+ * 商家确认已收款（pending_pay / pending_confirm → paid），并落一条收款记录用于对账。
  * 收款记录 _id 固定为 pr_<orderId>，天然防止重复确认。
  */
 async function confirmReceipt(ctx) {
@@ -609,7 +629,7 @@ async function confirmReceipt(ctx) {
 
   const res = await ctx.db
     .collection(COL.ORDERS)
-    .where({ _id: order._id, status: state.STATUS.PENDING_CONFIRM, merchantId })
+    .where({ _id: order._id, status: order.status, merchantId })
     .update({
       data: {
         status: target,

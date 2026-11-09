@@ -245,6 +245,19 @@ function summaryText(order) {
   return text.length > 60 ? text.slice(0, 58) + '…' : text
 }
 
+function pickupVisible(order) {
+  return state.PICKUP_CODE_STATUSES.indexOf(order.status) >= 0 && !!order.pickupCode
+}
+
+function pickupFields(order) {
+  const show = pickupVisible(order)
+  return {
+    pickupCode: show ? order.pickupCode : '',
+    pickupCodeText: show ? String(order.pickupCode) : '',
+    pickupCodeWarning: show ? order.pickupCodeWarning || '' : ''
+  }
+}
+
 function orderView(order) {
   const totalCents = money.assertCents(order.totalCents || 0, '订单金额')
   return {
@@ -252,6 +265,7 @@ function orderView(order) {
     orderNo: order.orderNo,
     status: order.status,
     statusText: state.STATUS_TEXT[order.status] || order.status,
+    customerStatusText: state.CUSTOMER_STATUS_TEXT[order.status] || state.STATUS_TEXT[order.status] || order.status,
     totalCents,
     totalText: money.formatCents(totalCents),
     totalQty: order.totalQty || 0,
@@ -264,7 +278,11 @@ function orderView(order) {
     createdAtText: dates.shanghaiShortTime(order.createdAt),
     canPay: order.status === state.STATUS.PENDING_PAY,
     canCancel: state.ACTION_RULES.cancel.from.indexOf(order.status) >= 0,
-    needConfirmReceipt: order.status === state.STATUS.PENDING_CONFIRM
+    // 转账订单：顾客点了「我已转账」或还没点，商家都能确认收款
+    needConfirmReceipt:
+      (order.payChannel ? order.payChannel === paymode.PAY_MODES.TRANSFER : true) &&
+      state.ACTION_RULES.confirm.from.indexOf(order.status) >= 0,
+    ...pickupFields(order)
   }
 }
 
@@ -293,7 +311,8 @@ function availableActions(order, isMerchant) {
   const status = order.status
   const actions = []
   if (isMerchant) {
-    if (status === state.STATUS.PENDING_CONFIRM) actions.push('confirm')
+    const isTransfer = order.payChannel ? order.payChannel === paymode.PAY_MODES.TRANSFER : true
+    if (isTransfer && state.ACTION_RULES.confirm.from.indexOf(status) >= 0) actions.push('confirm')
     if (status === state.STATUS.PAID) actions.push('accept')
     if (status === state.STATUS.ACCEPTED) actions.push('ready')
     if (status === state.STATUS.READY) actions.push('complete')
@@ -359,6 +378,10 @@ async function detail(ctx) {
     date: order.date,
     status: order.status,
     statusText: state.STATUS_TEXT[order.status] || order.status,
+    customerStatusText: state.CUSTOMER_STATUS_TEXT[order.status] || state.STATUS_TEXT[order.status] || order.status,
+    pickupCode: pickupFields(order).pickupCode,
+    pickupCodeText: pickupFields(order).pickupCodeText,
+    pickupCodeWarning: pickupFields(order).pickupCodeWarning,
     payChannel: order.payChannel || '',
     payChannelLabel: paymode.PAY_MODE_LABELS[order.payChannel] || '',
     totalCents,

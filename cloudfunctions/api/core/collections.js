@@ -13,7 +13,7 @@ const COLLECTIONS = {
   MENUS: 'menus',                    // 每日菜单（发布记录：dishIds + 取餐时段 + 时段限量）
   ORDERS: 'orders',                  // 订单（含菜品快照、状态机、支付信息）
   SLOT_COUNTERS: 'slot_counters',    // 取餐时段名额原子计数（每菜单每时段一条）
-  COUNTERS: 'counters',              // 订单号序号计数器（每商家每天一条）
+  COUNTERS: 'counters',              // 序号计数器（订单号按商家每天一条；取餐码 pickup_seq_<merchantId>_<yyyyMMdd>）
   ADMINS_LEGACY: 'merchant_admins',  // 旧版商家 openid 白名单（仅迁移/兼容）
   AUDIT_LOGS: 'audit_logs',          // 管理/导出操作审计（不含业务字段值）
   ERROR_LOGS: 'error_logs',          // 云函数失败日志（仅 action/code/merchantId/时间）

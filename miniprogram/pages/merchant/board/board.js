@@ -79,11 +79,11 @@ Page({
 
     if (action === 'confirm') {
       wx.showModal({
-        title: '确认已收款',
-        content: '确认已收到 ¥' + order.totalText + '（订单 #' + order.orderNo + '）？确认后会生成收款记录。',
+        title: '确认收款',
+        content: '确认已收到 ¥' + order.totalText + '（订单 #' + order.orderNo + '）？确认后订单进入备餐，并生成收款记录。',
         success: (res) => {
           if (!res.confirm) return
-          this.run(() => api.call('merchant.confirmReceipt', { orderId }), '已确认收款')
+          this.run(() => api.call('merchant.confirmReceipt', { orderId }), '已确认收款，订单进入备餐')
         }
       })
       return

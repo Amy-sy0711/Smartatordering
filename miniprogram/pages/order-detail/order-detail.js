@@ -88,11 +88,11 @@ Page({
     }
     if (action === 'confirm') {
       wx.showModal({
-        title: '确认已收款',
-        content: `确认已收到 ¥${order.totalText}（订单 #${order.orderNo}）？确认后将生成收款记录。`,
+        title: '确认收款',
+        content: `确认已收到 ¥${order.totalText}（订单 #${order.orderNo}）？确认后订单进入备餐，并生成收款记录。`,
         success: (res) => {
           if (!res.confirm) return
-          this.callWithBusy(() => api.call('merchant.confirmReceipt', { orderId: order.orderId }), '已确认收款')
+          this.callWithBusy(() => api.call('merchant.confirmReceipt', { orderId: order.orderId }), '已确认收款', true)
         }
       })
       return
@@ -114,7 +114,7 @@ Page({
 
   doMerchantTransition(action) {
     const order = this.data.order
-    const labels = { accept: '已接单', ready: '已出餐', complete: '订单已完成' }
+    const labels = { accept: '已接单', ready: '已出餐，取餐码已生成', complete: '已取餐' }
     this.callWithBusy(
       () => api.call('merchant.transition', { orderId: order.orderId, action }),
       labels[action] || '操作成功',

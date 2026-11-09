@@ -292,6 +292,19 @@ function summaryText(order) {
   return text.length > 60 ? text.slice(0, 58) + '…' : text
 }
 
+function pickupVisible(order) {
+  return state.PICKUP_CODE_STATUSES.indexOf(order.status) >= 0 && !!order.pickupCode
+}
+
+function pickupFields(order) {
+  const show = pickupVisible(order)
+  return {
+    pickupCode: show ? order.pickupCode : '',
+    pickupCodeText: show ? String(order.pickupCode) : '',
+    pickupCodeWarning: show ? order.pickupCodeWarning || '' : ''
+  }
+}
+
 function orderView(order) {
   const totalCents = money.assertCents(order.totalCents || 0, '订单金额')
   return {
@@ -299,6 +312,7 @@ function orderView(order) {
     orderNo: order.orderNo,
     status: order.status,
     statusText: state.STATUS_TEXT[order.status] || order.status,
+    customerStatusText: state.CUSTOMER_STATUS_TEXT[order.status] || state.STATUS_TEXT[order.status] || order.status,
     totalCents,
     totalText: money.formatCents(totalCents),
     totalQty: order.totalQty || 0,
@@ -311,7 +325,10 @@ function orderView(order) {
     createdAtText: dates.shanghaiShortTime(order.createdAt),
     canPay: order.status === state.STATUS.PENDING_PAY,
     canCancel: state.ACTION_RULES.cancel.from.indexOf(order.status) >= 0,
-    needConfirmReceipt: order.status === state.STATUS.PENDING_CONFIRM
+    needConfirmReceipt:
+      (order.payChannel ? order.payChannel === paymode.PAY_MODES.TRANSFER : true) &&
+      state.ACTION_RULES.confirm.from.indexOf(order.status) >= 0,
+    ...pickupFields(order)
   }
 }
 
@@ -340,7 +357,8 @@ function availableActions(order, isMerchant) {
   const status = order.status
   const actions = []
   if (isMerchant) {
-    if (status === state.STATUS.PENDING_CONFIRM) actions.push('confirm')
+    const isTransfer = order.payChannel ? order.payChannel === paymode.PAY_MODES.TRANSFER : true
+    if (isTransfer && state.ACTION_RULES.confirm.from.indexOf(status) >= 0) actions.push('confirm')
     if (status === state.STATUS.PAID) actions.push('accept')
     if (status === state.STATUS.ACCEPTED) actions.push('ready')
     if (status === state.STATUS.READY) actions.push('complete')
@@ -387,6 +405,7 @@ function createLocalBackend(options) {
       orders: {},
       slotCounters: {},
       counters: {},
+      pickupCounters: {},
       settings: {},
       paymentRecords: {},
       merchantMode: false
@@ -403,6 +422,7 @@ function createLocalBackend(options) {
       orders: base.orders && typeof base.orders === 'object' ? base.orders : {},
       slotCounters: base.slotCounters && typeof base.slotCounters === 'object' ? base.slotCounters : {},
       counters: base.counters && typeof base.counters === 'object' ? base.counters : {},
+      pickupCounters: base.pickupCounters && typeof base.pickupCounters === 'object' ? base.pickupCounters : {},
       settings: base.settings && typeof base.settings === 'object' ? base.settings : {},
       paymentRecords: base.paymentRecords && typeof base.paymentRecords === 'object' ? base.paymentRecords : {},
       merchantMode: base.merchantMode === true
@@ -692,6 +712,10 @@ function createLocalBackend(options) {
       date: order.date,
       status: order.status,
       statusText: state.STATUS_TEXT[order.status] || order.status,
+      customerStatusText: state.CUSTOMER_STATUS_TEXT[order.status] || state.STATUS_TEXT[order.status] || order.status,
+      pickupCode: pickupFields(order).pickupCode,
+      pickupCodeText: pickupFields(order).pickupCodeText,
+      pickupCodeWarning: pickupFields(order).pickupCodeWarning,
       payChannel: order.payChannel || '',
       payChannelLabel: paymode.PAY_MODE_LABELS[order.payChannel] || '',
       totalCents,
@@ -1003,7 +1027,20 @@ function createLocalBackend(options) {
     order.updatedAt = at
     order.statusHistory = (order.statusHistory || []).concat([{ status: target, at, by: 'merchant' }])
     if (target === state.STATUS.ACCEPTED) order.acceptedAt = at
-    if (target === state.STATUS.READY) order.readyAt = at
+    if (target === state.STATUS.READY) {
+      order.readyAt = at
+      // 出餐完成 → 待取餐：按商家 + 业务日自增取餐码；已有码复用（幂等）
+      if (!order.pickupCode) {
+        const key = String(order.merchantId || MERCHANT_ID) + '_' + String(order.date || dates.shanghaiDateKey(at))
+        const seq = (Number(db.pickupCounters[key]) || 0) + 1
+        db.pickupCounters[key] = seq
+        order.pickupCodeSeq = seq
+        order.pickupCode = seq <= 9999 ? String(seq).padStart(4, '0') : String(seq)
+        order.pickupCodeDate = order.date
+        order.pickupCodeAt = at
+        if (seq > 9999) order.pickupCodeWarning = '当日取餐码已超过 9999，按 5 位显示'
+      }
+    }
     if (target === state.STATUS.COMPLETED) order.completedAt = at
     if (target === state.STATUS.CANCELED) {
       order.canceledAt = at

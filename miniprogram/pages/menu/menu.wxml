@@ -149,12 +149,71 @@
   </view>
 
   <view class="cartbar" wx:if="{{published}}">
-    <view class="cartbar-left" bindtap="goOrders">
+    <view class="cartbar-left" bindtap="openCartSheet">
       <text class="cartbar-icon">🧺</text>
       <text class="cartbar-count">{{cartCount}} 件</text>
       <text class="cartbar-total">¥{{cartTotalText}}</text>
     </view>
     <view class="cartbar-btn {{cartCount ? '' : 'cartbar-btn--disabled'}}" bindtap="goCart">去结算</view>
+  </view>
+
+  <!-- 购物车清单弹层：菜单页内直接删减，不必跳购物车页 -->
+  <view class="cart-sheet-mask" wx:if="{{cartSheetVisible}}" bindtap="onCartMaskTap" catchtouchmove="noop">
+    <view class="cart-sheet" catchtap="noop">
+      <view class="cart-sheet-head">
+        <text class="cart-sheet-title">已选菜品</text>
+        <text class="cart-sheet-close" catchtap="closeCartSheet">收起</text>
+      </view>
+
+      <view class="cart-sheet-empty" wx:if="{{!cartRows.length}}">购物车还是空的，去选几道菜吧</view>
+
+      <scroll-view class="cart-sheet-list" scroll-y wx:else>
+        <view class="cart-sheet-row" wx:for="{{cartRows}}" wx:key="key">
+          <image
+            class="cart-sheet-img"
+            wx:if="{{item.imageUrl}}"
+            src="{{item.imageUrl}}"
+            mode="aspectFill"
+            data-url="{{item.imageUrl}}"
+            catchtap="onDishImageTap"
+            binderror="onDishImageError"
+          ></image>
+          <view class="cart-sheet-img cart-sheet-img--ph" wx:else>{{item.initial}}</view>
+
+          <view class="cart-sheet-main">
+            <view class="cart-sheet-name">
+              {{item.name}}
+              <text class="cart-sheet-tag" wx:if="{{!item.available}}">{{item.stateLabel}}</text>
+            </view>
+            <view class="cart-sheet-spec" wx:if="{{item.specText}}">{{item.specText}}</view>
+            <view class="cart-sheet-price">¥{{item.unitText}}</view>
+          </view>
+
+          <view class="cart-sheet-ops">
+            <view class="cart-sheet-sub">¥{{item.subtotalText}}</view>
+            <view class="cart-sheet-qty">
+              <text class="cart-sheet-step" data-key="{{item.key}}" data-delta="-1" catchtap="onCartStep">−</text>
+              <text class="cart-sheet-num">{{item.qty}}</text>
+              <text
+                class="cart-sheet-step {{item.canIncrease ? '' : 'cart-sheet-step--off'}}"
+                data-key="{{item.key}}"
+                data-delta="1"
+                catchtap="onCartStep"
+              >＋</text>
+            </view>
+            <text class="cart-sheet-remove" data-key="{{item.key}}" catchtap="onCartRemove">删除</text>
+          </view>
+        </view>
+      </scroll-view>
+
+      <view class="cart-sheet-foot">
+        <view class="cart-sheet-total">
+          <text class="cart-sheet-total-count">{{cartSheetCount}} 件</text>
+          <text class="cart-sheet-total-amount">¥{{cartSheetTotalText}}</text>
+        </view>
+        <view class="cart-sheet-checkout {{cartSheetCount ? '' : 'cart-sheet-checkout--off'}}" catchtap="onCartCheckout">去结算</view>
+      </view>
+    </view>
   </view>
 
   <spec-picker

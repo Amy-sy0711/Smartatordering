@@ -1,11 +1,11 @@
 /** 订单状态展示映射（与 cloudfunctions/api/core/state.js 保持一致） */
 const STATUS_TEXT = {
-  pending_pay: '待付款',
-  pending_confirm: '待确认收款',
+  pending_pay: '待支付',
+  pending_confirm: '待商家确认',
   paid: '待接单',
   accepted: '制作中',
-  ready: '可取餐',
-  completed: '已完成',
+  ready: '待取餐',
+  completed: '已取餐',
   canceled: '已取消'
 }
 
@@ -30,10 +30,10 @@ function tagClass(status) {
 const ACTION_TEXT = {
   pay: '支付',
   transfer: '我已转账',
-  confirm: '确认已收款',
+  confirm: '确认收款',
   accept: '接单',
-  ready: '出餐',
-  complete: '完成',
+  ready: '出餐（生成取餐码）',
+  complete: '已取餐',
   cancel: '取消订单'
 }
 

@@ -4,8 +4,16 @@
   <block wx:if="{{order}}">
     <view class="status-card">
       <view class="status-top">
-        <text class="status-text">{{order.statusText}}</text>
+        <text class="status-text">{{fromMerchant ? order.statusText : (order.customerStatusText || order.statusText)}}</text>
         <text class="tag {{order.statusTag}} status-tag">{{order.payChannelLabel}}</text>
+      </view>
+
+      <!-- 待取餐 / 已取餐：取餐码 -->
+      <view class="pickup" wx:if="{{order.pickupCode}}">
+        <view class="pickup-label">取餐码</view>
+        <view class="pickup-value">{{order.pickupCode}}</view>
+        <view class="pickup-tip">{{order.status === 'ready' ? '已出餐，请凭此码到店取餐' : '已取餐'}}</view>
+        <view class="pickup-warn" wx:if="{{order.pickupCodeWarning}}">{{order.pickupCodeWarning}}</view>
       </view>
       <view class="timeline">
         <view class="step-item" wx:for="{{order.timeline}}" wx:key="key">

@@ -32,6 +32,20 @@ const STATUS_TEXT = {
   canceled: '已取消'
 }
 
+/** 顾客端展示文案（商家端仍用 STATUS_TEXT） */
+const CUSTOMER_STATUS_TEXT = {
+  pending_pay: '待支付',
+  pending_confirm: '待商家确认',
+  paid: '已支付备餐中',
+  accepted: '已支付备餐中',
+  ready: '待取餐',
+  completed: '已取餐',
+  canceled: '已取消'
+}
+
+/** 出餐完成（ready）起生成取餐码，取餐后（completed）仍展示 */
+const PICKUP_CODE_STATUSES = ['ready', 'completed']
+
 const TRANSITIONS = {
   pending_pay: ['pending_confirm', 'paid', 'canceled'],
   pending_confirm: ['paid', 'canceled'],
@@ -46,7 +60,7 @@ const TRANSITIONS = {
 const ACTION_RULES = {
   transfer: { to: 'pending_confirm', from: ['pending_pay'] },      // 顾客：我已转账
   pay: { to: 'paid', from: ['pending_pay'] },                      // mock/jsapi 支付成功
-  confirm: { to: 'paid', from: ['pending_confirm'] },              // 商家：确认已收款
+  confirm: { to: 'paid', from: ['pending_pay', 'pending_confirm'] }, // 商家：确认收款（顾客已转账或钱已到账）
   accept: { to: 'accepted', from: ['paid'] },                      // 商家：接单（必须已收款）
   ready: { to: 'ready', from: ['accepted'] },                      // 商家：出餐
   complete: { to: 'completed', from: ['ready'] },                  // 商家：完成
@@ -104,6 +118,8 @@ function hasReceivedMoney(order) {
 module.exports = {
   STATUS,
   STATUS_TEXT,
+  CUSTOMER_STATUS_TEXT,
+  PICKUP_CODE_STATUSES,
   TRANSITIONS,
   ACTION_RULES,
   UNFINISHED_PAID_STATUSES,

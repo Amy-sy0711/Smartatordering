@@ -65,6 +65,20 @@
   color: #2361d8;
 }
 
+/* 出餐后的取餐码，商家叫号用 */
+.order-pickup {
+  margin-top: 8rpx;
+  font-size: 24rpx;
+  color: #a15c17;
+}
+
+.order-pickup-code {
+  font-size: 32rpx;
+  font-weight: 700;
+  letter-spacing: 2rpx;
+  color: #e85d04;
+}
+
 .order-foot {
   display: flex;
   align-items: center;

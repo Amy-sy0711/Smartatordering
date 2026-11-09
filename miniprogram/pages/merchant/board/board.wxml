@@ -34,7 +34,11 @@
     <view class="order-items">{{item.itemSummary}}</view>
     <view class="order-remark" wx:if="{{item.remark}}">备注：{{item.remark}}</view>
     <view class="order-transfer" wx:if="{{item.needConfirmReceipt}}">
-      顾客已标记转账{{item.transferNote ? '：' + item.transferNote : ''}}{{item.transferredAtText ? '（' + item.transferredAtText + '）' : ''}}
+      <text wx:if="{{item.status === 'pending_confirm'}}">顾客已标记转账</text>
+      <text wx:else>顾客待支付（群转账），确认到账后点「确认收款」</text>{{item.transferNote ? '：' + item.transferNote : ''}}{{item.transferredAtText ? '（' + item.transferredAtText + '）' : ''}}
+    </view>
+    <view class="order-pickup" wx:if="{{item.pickupCode}}">
+      取餐码 <text class="order-pickup-code">{{item.pickupCode}}</text>
     </view>
 
     <view class="order-foot">
@@ -46,7 +50,7 @@
           data-id="{{item.orderId}}"
           data-action="confirm"
           catchtap="doAction"
-        >确认已收款</view>
+        >确认收款</view>
         <view
           class="btn btn--primary btn--small"
           wx:elif="{{item.status === 'paid'}}"
@@ -60,14 +64,14 @@
           data-id="{{item.orderId}}"
           data-action="ready"
           catchtap="doAction"
-        >出餐</view>
+        >出餐（生成取餐码）</view>
         <view
           class="btn btn--primary btn--small"
           wx:elif="{{item.status === 'ready'}}"
           data-id="{{item.orderId}}"
           data-action="complete"
           catchtap="doAction"
-        >完成</view>
+        >已取餐</view>
         <view
           class="btn btn--ghost btn--small"
           wx:if="{{item.canCancel}}"
