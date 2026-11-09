@@ -65,6 +65,13 @@
   color: #2361d8;
 }
 
+/* 非今日的遗留待收款订单，提醒商家换了日期也要处理 */
+.order-stale {
+  margin-top: 8rpx;
+  font-size: 22rpx;
+  color: #b26a00;
+}
+
 /* 出餐后的取餐码，商家叫号用 */
 .order-pickup {
   margin-top: 8rpx;

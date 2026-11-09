@@ -60,7 +60,11 @@ const WXPAY = {
   BODY_PREFIX: '点餐' // 支付账单标题前缀
 }
 
+// 云函数代码版本号：每次改后端逻辑请一起 +1，`health` 会原样返回，便于确认是否已重新部署
+const API_VERSION = '2026.11.09-2'
+
 module.exports = {
+  API_VERSION,
   DEFAULT_MERCHANT_ID,
   MERCHANT_ID,
   MERCHANT_OPENIDS,

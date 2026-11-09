@@ -7,6 +7,7 @@
 
   let cloudApp = null
   let token = sessionStorage.getItem(TOKEN_KEY) || ''
+  let lastOrders = []
   let shop = null
   let categories = []
   let dishes = []
@@ -485,6 +486,7 @@
       if (filter) payload.statuses = [filter]
       const data = await callApi('merchant.orders', payload)
       const list = data.list || []
+      lastOrders = list
       if (!list.length) {
         box.innerHTML = '<p class="muted">' + esc(data.dateLabel || currentDate()) + ' 暂无订单。</p>'
         return
@@ -498,6 +500,7 @@
             '<div class="order-card">' +
             '<div class="order-head"><strong>#' + esc(order.orderNo) + ' · ' + esc(order.statusText || order.status) + '</strong><span>¥' + esc(order.totalText) + '</span></div>' +
             '<div class="order-meta">取餐：' + esc(order.slotLabel || '—') + ' · ' + esc(order.createdAtText || '') + '</div>' +
+            (order.isStale ? '<div class="order-meta">非今日订单（' + esc(order.date || '') + '）待收款</div>' : '') +
             '<div class="order-items">' + items + '</div>' +
             (order.transferNote ? '<div class="order-meta">转账备注：' + esc(order.transferNote) + '</div>' : '') +
             (order.remark ? '<div class="order-meta">顾客备注：' + esc(order.remark) + '</div>' : '') +
@@ -518,12 +521,18 @@
   function orderActions(order) {
     const buttons = []
     const id = order._id || order.orderId
-    if (order.status === 'pending_confirm') {
+    // 以服务端下发的 needConfirmReceipt 为准：pending_pay / pending_confirm 都要能确认收款
+    const needConfirm = typeof order.needConfirmReceipt === 'boolean'
+      ? order.needConfirmReceipt
+      : ['pending_pay', 'pending_confirm'].indexOf(order.status) >= 0
+    if (needConfirm) {
       buttons.push('<button class="btn small primary" data-order="' + esc(id) + '" data-op="confirm">确认收款</button>')
     }
-    if (order.status === 'paid') buttons.push('<button class="btn small primary" data-order="' + esc(id) + '" data-op="accept">接单</button>')
-    if (order.status === 'accepted') buttons.push('<button class="btn small primary" data-order="' + esc(id) + '" data-op="ready">出餐</button>')
-    if (order.status === 'ready') buttons.push('<button class="btn small primary" data-order="' + esc(id) + '" data-op="complete">完成</button>')
+    // 已收款即可出餐；accepted 仅兼容历史订单，新流程不再产生
+    if (order.status === 'paid' || order.status === 'accepted') {
+      buttons.push('<button class="btn small primary" data-order="' + esc(id) + '" data-op="ready">出餐（生成取餐码）</button>')
+    }
+    if (order.status === 'ready') buttons.push('<button class="btn small primary" data-order="' + esc(id) + '" data-op="complete">已取餐</button>')
     if (['pending_pay', 'pending_confirm', 'paid', 'accepted', 'ready'].indexOf(order.status) >= 0) {
       buttons.push('<button class="btn small danger" data-order="' + esc(id) + '" data-op="cancel">取消</button>')
     }
@@ -533,6 +542,11 @@
   async function orderAction(orderId, op) {
     try {
       if (op === 'confirm') {
+        const order = (lastOrders || []).filter((item) => (item._id || item.orderId) === orderId)[0] || {}
+        const ok = confirm(
+          '确认已收到 ¥' + (order.totalText || '') + '（订单 #' + (order.orderNo || orderId) + '）？\n确认后订单进入备餐，再点「出餐（生成取餐码）」生成取餐码。'
+        )
+        if (!ok) return
         await callApi('merchant.confirmReceipt', { orderId })
         toast('已确认收款')
       } else if (op === 'cancel') {
@@ -548,7 +562,8 @@
       loadStats()
     } catch (err) {
       if (handleAuthError(err)) return
-      alert(err.message)
+      // 失败必须带服务端 code，便于用户反馈定位（越权 / 状态已变化 / 重复确认）
+      alert((err && err.code ? err.code + '：' : '') + ((err && err.message) || '操作失败'))
     }
   }
 

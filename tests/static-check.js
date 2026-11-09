@@ -588,6 +588,36 @@ if (boardWxml.indexOf('确认收款') < 0) fail('商家订单看板缺少「确�
 const localBackendText = read(path.join(MP_ROOT, 'utils', 'local-backend.js'))
 if (localBackendText.indexOf('pickupCounters') < 0) fail('本地演示后端未实现取餐码计数')
 
+/* 订单流转（去掉接单）与历史订单可见性 */
+if (stateCore.indexOf("paid: ['accepted', 'ready', 'canceled']") < 0) {
+  fail('状态机：paid 应允许直接流转到 ready')
+}
+if (stateCore.indexOf("ready: { to: 'ready', from: ['paid', 'accepted'] }") < 0) {
+  fail('状态机：出餐应支持 paid 与历史 accepted')
+}
+if (orderHandler.indexOf("actions.push('accept')") >= 0) fail('订单动作仍下发「接单」（应已移除）')
+if (orderHandler.indexOf('buyerOpenid: ctx.openid, merchantId') >= 0) {
+  fail('我的订单仍按 merchantId 硬过滤，旧订单（无 merchantId）会不可见')
+}
+if (orderHandler.indexOf('pickupCodeMissing') < 0) fail('订单视图缺少「历史 ready 无取餐码」兜底标记')
+if (boardWxml.indexOf('data-action="accept"') >= 0) fail('商家看板仍保留「接单」按钮')
+if (boardWxml.indexOf("item.status === 'paid' || item.status === 'accepted'") < 0) {
+  fail('商家看板未把「已收款 / 历史制作中」都接入出餐')
+}
+const ordersWxml = read(path.join(MP_ROOT, 'pages', 'orders', 'orders.wxml'))
+if (ordersWxml.indexOf('pickupCodeMissing') < 0) fail('我的订单缺少「请向商家询问取餐码」兜底')
+const detailWxml = read(path.join(MP_ROOT, 'pages', 'order-detail', 'order-detail.wxml'))
+if (detailWxml.indexOf('pickupCodeMissing') < 0) fail('订单详情缺少「请向商家询问取餐码」兜底')
+const consoleText = read(path.join(ROOT, 'merchant-console', 'app.js'))
+if (consoleText.indexOf('data-op="accept"') >= 0) fail('网页商家后台仍保留「接单」按钮')
+if (consoleText.indexOf('err.code') < 0) fail('网页商家后台失败时未展示服务端错误码')
+if (read(path.join(ROOT, 'cloudfunctions', 'api', 'handlers', 'health.js')).indexOf('apiVersion') < 0) {
+  fail('health 未返回 apiVersion，无法自查云函数是否已重新部署')
+}
+if (read(path.join(ROOT, 'README.md')).indexOf('更新后如何部署') < 0) {
+  fail('README 缺少「更新后如何部署」小节')
+}
+
 /* 本次需求明确不做订阅消息，相关代码不得出现 */
 const forbiddenSubscribe = ['requestSubscribeMessage', 'subscribeMessage.send', 'SUBSCRIBE_TEMPLATE']
 walk(ROOT, (file) => {

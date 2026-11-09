@@ -42,6 +42,15 @@
   color: #a15c17;
 }
 
+.pickup-code--missing {
+  background: #f4f4f5;
+}
+
+.pickup-code--missing .pickup-code-label,
+.pickup-code--missing .pickup-code-tip {
+  color: #6b7280;
+}
+
 .order-time {
   margin-left: 12rpx;
 }

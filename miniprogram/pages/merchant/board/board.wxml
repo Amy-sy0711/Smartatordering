@@ -30,6 +30,7 @@
       <text class="tag {{item.statusTag}}">{{item.statusText}}</text>
     </view>
     <view class="muted order-time">{{item.createdAtText}} · {{item.slotLabel}} · {{item.payChannelLabel}}</view>
+    <view class="order-stale" wx:if="{{item.isStale}}">非今日订单（{{item.date}}）待收款</view>
 
     <view class="order-items">{{item.itemSummary}}</view>
     <view class="order-remark" wx:if="{{item.remark}}">备注：{{item.remark}}</view>
@@ -51,16 +52,10 @@
           data-action="confirm"
           catchtap="doAction"
         >确认收款</view>
+        <!-- 已收款即可出餐；accepted 仅兼容历史订单，新流程不再产生 -->
         <view
           class="btn btn--primary btn--small"
-          wx:elif="{{item.status === 'paid'}}"
-          data-id="{{item.orderId}}"
-          data-action="accept"
-          catchtap="doAction"
-        >一键接单</view>
-        <view
-          class="btn btn--primary btn--small"
-          wx:elif="{{item.status === 'accepted'}}"
+          wx:elif="{{item.status === 'paid' || item.status === 'accepted'}}"
           data-id="{{item.orderId}}"
           data-action="ready"
           catchtap="doAction"

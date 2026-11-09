@@ -16,7 +16,7 @@
       <text class="pay-title">小程序内微信支付</text>
       <text class="pay-amount">¥{{order.totalText}}</text>
     </view>
-    <view class="pay-tip">下单后直接调起微信支付，支付成功即进入待接单</view>
+    <view class="pay-tip">下单后直接调起微信支付，支付成功即进入待出餐</view>
     <button class="btn btn--primary btn--block pay-btn" loading="{{submitting}}" disabled="{{!jsapiUsable}}" bindtap="submit">微信支付</button>
     <view class="pay-error" wx:if="{{!jsapiUsable}}">{{settings.unusableReason}}</view>
   </block>

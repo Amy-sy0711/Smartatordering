@@ -18,7 +18,7 @@ function orderStatusText(status) {
     pending_pay: '待支付',
     pending_confirm: '待确认收款',
     paid: '已收款',
-    accepted: '已接单',
+    accepted: '制作中（历史）',
     ready: '已出餐',
     completed: '已完成',
     canceled: '已取消'

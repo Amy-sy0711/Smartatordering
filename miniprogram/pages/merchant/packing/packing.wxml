@@ -19,7 +19,7 @@
           <view class="summary-label">订单金额</view>
         </view>
       </view>
-      <view class="muted summary-tip">口径：今日「已收款且未完成」的订单（待接单 / 制作中 / 可取餐）</view>
+      <view class="muted summary-tip">口径：今日「已收款且未完成」的订单（待出餐 / 制作中（历史） / 待取餐）</view>
       <view class="summary-ops">
         <view class="btn btn--primary btn--small" bindtap="copyText">复制清单文字</view>
         <view class="btn btn--ghost btn--small" bindtap="toggleText">{{showText ? '收起文字' : '预览文字'}}</view>

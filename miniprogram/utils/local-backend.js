@@ -292,8 +292,17 @@ function summaryText(order) {
   return text.length > 60 ? text.slice(0, 58) + '…' : text
 }
 
+/** 旧订单没有 merchantId 字段时统一按默认商家处理 */
+function orderMerchantId(order) {
+  return (order && order.merchantId) || MERCHANT_ID
+}
+
+function isPickupStage(order) {
+  return state.PICKUP_CODE_STATUSES.indexOf(order.status) >= 0
+}
+
 function pickupVisible(order) {
-  return state.PICKUP_CODE_STATUSES.indexOf(order.status) >= 0 && !!order.pickupCode
+  return isPickupStage(order) && !!order.pickupCode
 }
 
 function pickupFields(order) {
@@ -301,7 +310,9 @@ function pickupFields(order) {
   return {
     pickupCode: show ? order.pickupCode : '',
     pickupCodeText: show ? String(order.pickupCode) : '',
-    pickupCodeWarning: show ? order.pickupCodeWarning || '' : ''
+    pickupCodeWarning: show ? order.pickupCodeWarning || '' : '',
+    // 历史 ready 订单可能早于取餐码功能，展示「请向商家询问取餐码」而不是空白
+    pickupCodeMissing: isPickupStage(order) && !order.pickupCode
   }
 }
 
@@ -345,7 +356,10 @@ function timeline(order) {
   const reached = {}
   for (const item of order.statusHistory || []) reached[item.status] = true
 
-  return steps.map((step) => ({
+  // 新流程不再经过 accepted（接单）；只有历史订单走过才展示这一步
+  const visible = steps.filter((step) => step.key !== 'accepted' || !!reached.accepted)
+
+  return visible.map((step) => ({
     key: step.key,
     label: step.label,
     done: !!reached[step.key],
@@ -359,8 +373,8 @@ function availableActions(order, isMerchant) {
   if (isMerchant) {
     const isTransfer = order.payChannel ? order.payChannel === paymode.PAY_MODES.TRANSFER : true
     if (isTransfer && state.ACTION_RULES.confirm.from.indexOf(status) >= 0) actions.push('confirm')
-    if (status === state.STATUS.PAID) actions.push('accept')
-    if (status === state.STATUS.ACCEPTED) actions.push('ready')
+    // 已收款即可出餐（不再需要「接单」）；accepted 仅用于兼容历史订单
+    if (status === state.STATUS.PAID || status === state.STATUS.ACCEPTED) actions.push('ready')
     if (status === state.STATUS.READY) actions.push('complete')
   } else if (status === state.STATUS.PENDING_PAY) {
     actions.push('pay')
@@ -716,6 +730,7 @@ function createLocalBackend(options) {
       pickupCode: pickupFields(order).pickupCode,
       pickupCodeText: pickupFields(order).pickupCodeText,
       pickupCodeWarning: pickupFields(order).pickupCodeWarning,
+      pickupCodeMissing: pickupFields(order).pickupCodeMissing,
       payChannel: order.payChannel || '',
       payChannelLabel: paymode.PAY_MODE_LABELS[order.payChannel] || '',
       totalCents,
@@ -1012,8 +1027,23 @@ function createLocalBackend(options) {
       .filter((order) => order.date === dateKey)
       .filter((order) => !statuses.length || statuses.indexOf(order.status) >= 0)
       .sort(byCreatedDesc)
-      .map(merchantOrderView)
-    return { date: dateKey, dateLabel: dates.shanghaiDateLabel(dateKey), list, total: list.length }
+    // 其他日期的待收款订单也要带回，否则商家换了日期就看不到「确认收款」
+    const stale = statuses.length
+      ? []
+      : Object.keys(db.orders)
+          .map((key) => db.orders[key])
+          .filter((order) => order.date !== dateKey)
+          .filter((order) => [state.STATUS.PENDING_PAY, state.STATUS.PENDING_CONFIRM].indexOf(order.status) >= 0)
+          .sort(byCreatedDesc)
+          .slice(0, 100)
+    const merged = stale.concat(list)
+    return {
+      date: dateKey,
+      dateLabel: dates.shanghaiDateLabel(dateKey),
+      list: merged.map((order) => Object.assign(merchantOrderView(order), { isStale: order.date !== dateKey })),
+      staleCount: stale.length,
+      total: merged.length
+    }
   }
 
   function transition(db, payload) {
@@ -1324,12 +1354,17 @@ function createLocalBackend(options) {
       case 'order.list': {
         const page = Math.max(Number(input.page) || 1, 1)
         const size = 20
+        // 不按日期过滤：顾客「我的订单」要能看到全部历史订单（含跨天待取餐的）
         const all = Object.keys(db.orders)
           .map((key) => db.orders[key])
           .filter((order) => order.buyerOpenid === LOCAL_OPENID)
+          .filter((order) => orderMerchantId(order) === MERCHANT_ID)
           .sort(byCreatedDesc)
-        const list = all.slice((page - 1) * size, page * size).map(orderView)
-        return { page, list, hasMore: list.length === size }
+        const start = (page - 1) * size
+        const list = all.slice(start, start + size).map((order) =>
+          Object.assign({}, orderView(order), { merchantId: orderMerchantId(order) })
+        )
+        return { page, list, hasMore: start + size < all.length, total: all.length }
       }
       case 'order.detail':
         return orderDetail(db, input)

@@ -12,6 +12,7 @@ const cloud = require('wx-server-sdk')
 const security = require('./core/security')
 const policy = require('./core/policy')
 const audit = require('./core/audit')
+const http = require('./core/http-adapter')
 
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 const db = cloud.database()
@@ -78,8 +79,63 @@ function ok(data) {
   return { code: 0, data }
 }
 
-function fail(code, message) {
-  return { code, message }
+function fail(code, message, hint) {
+  const out = { code, message }
+  if (hint) out.hint = hint
+  return out
+}
+
+async function findAdminByOpenid(openid) {
+  if (!openid) return null
+  try {
+    const res = await db.collection(COL.ADMINS).where({ openid }).limit(1).get()
+    return (res && res.data && res.data[0]) || null
+  } catch (err) {
+    return null
+  }
+}
+
+/**
+ * 两种鉴权方式（互不依赖）：
+ *  - 浏览器/HTTP 访问服务：payload.token 或 header x-admin-token（HMAC 签名）
+ *  - 小程序内平台管理：wx.cloud callFunction 自带 OPENID，命中 admins.openid 即放行
+ */
+async function authorize(event) {
+  const payload = (event && event.payload) || {}
+  const token = payload.token || (event && event.token)
+  if (token) {
+    const result = security.verifyToken(token)
+    if (!result.ok) {
+      const err = new Error(result.message)
+      err.code = result.code
+      throw err
+    }
+    return Object.assign({}, result.payload, { via: 'token' })
+  }
+
+  let ctx = {}
+  try {
+    ctx = cloud.getWXContext() || {}
+  } catch (err) {
+    ctx = {}
+  }
+  const openid = String(ctx.OPENID || '')
+  if (openid) {
+    const admin = await findAdminByOpenid(openid)
+    if (admin) {
+      return {
+        adminId: admin._id || admin.adminId,
+        username: admin.username,
+        role: admin.role || 'platform_admin',
+        openid: openid,
+        via: 'openid'
+      }
+    }
+  }
+  const err = new Error('请先登录管理员账号，或在小程序「平台管理」绑定当前微信')
+  err.code = 'UNAUTHORIZED'
+  err.hint = '浏览器请用 HTTP 访问服务 + x-admin-token；小程序内请在「平台管理」页用管理员账号绑定当前微信。'
+  throw err
 }
 
 function shanghaiDateKey(date) {
@@ -653,10 +709,14 @@ if (invalidActions.length) {
 
 exports.__actionNames = Object.keys(ACTIONS)
 
-exports.main = async (event) => {
+/**
+ * 统一的业务入口：小程序 callFunction 与 HTTP 访问服务共用同一套鉴权与动作白名单。
+ * event 形状：{ action, payload:{ token, ... } }
+ */
+async function handleCall(event) {
   let admin = null
   try {
-    admin = authorize(event)
+    admin = await authorize(event)
   } catch (err) {
     return {
       code: err.code || 'UNAUTHORIZED',
@@ -669,6 +729,7 @@ exports.main = async (event) => {
 
   const action = String((event && event.action) || '')
   const payload = (event && event.payload) || {}
+  const source = admin.via === 'openid' ? 'miniprogram-platform-admin' : 'admin-console'
   try {
     if (action === 'admin.changePassword') {
       const data = await adminChangePassword(event, admin)
@@ -683,7 +744,7 @@ exports.main = async (event) => {
     const data = await handler(payload)
     const failed = !!(data && data.code !== undefined && data.message !== undefined && data.code !== 0)
     if (AUDITED_ACTIONS.indexOf(action) >= 0) {
-      await writeAudit(admin, action, payload, failed ? { ok: false, code: data.code } : { ok: true })
+      await writeAudit(admin, action, Object.assign({}, payload, { source: source }), failed ? { ok: false, code: data.code } : { ok: true })
     }
     return failed ? data : ok(data)
   } catch (err) {
@@ -693,6 +754,47 @@ exports.main = async (event) => {
     }
     return fail('INTERNAL_ERROR', (err && err.message) || '管理接口执行失败')
   }
+}
+
+/* ------------------------------ HTTP 访问服务（可选链路 B1） ------------------------------ */
+
+const ALLOWED_ORIGINS = String(process.env.ADMIN_HTTP_ALLOWED_ORIGINS || '')
+  .split(',')
+  .map((item) => item.trim())
+  .filter(Boolean)
+
+function jsonResponse(event, statusCode, payload) {
+  return { statusCode: statusCode, headers: http.corsHeaders(event, ALLOWED_ORIGINS), body: JSON.stringify(payload) }
+}
+
+/**
+ * HTTP 访问服务入口：POST /adminApi
+ *  - token 可放在 header x-admin-token，或 query ?token=，或 body
+ *  - body: { action, payload }
+ *  - OPTIONS 预检返回 204 + CORS 头
+ */
+async function handleHttp(event) {
+  const method = String((event && event.httpMethod) || '').toUpperCase()
+  if (method === 'OPTIONS') {
+    return { statusCode: 204, headers: http.corsHeaders(event, ALLOWED_ORIGINS), body: '' }
+  }
+  if (method !== 'POST') {
+    return jsonResponse(event, 405, fail('METHOD_NOT_ALLOWED', 'HTTP 访问服务仅支持 POST'))
+  }
+  const parsed = http.parseHttpBody(event)
+  if (!parsed.ok) {
+    return jsonResponse(event, 400, fail('BAD_JSON', '请求体必须是 JSON 对象：{"action":"...","payload":{...}}', parsed.error))
+  }
+  const body = parsed.value
+  const picked = http.extractToken(event, body)
+  const payload = Object.assign({}, (body && body.payload) || {}, { token: picked.token })
+  const result = await handleCall({ action: String((body && body.action) || ''), payload: payload })
+  return jsonResponse(event, 200, result)
+}
+
+exports.main = async (event) => {
+  if (http.isHttpEvent(event)) return await handleHttp(event)
+  return await handleCall(event)
 }
 
 async function writeAudit(admin, action, payload, result) {

@@ -35,6 +35,14 @@ const ERROR_MAP = {
     message: '用户名需为 1-32 个字符',
     hint: '请填写普通用户名（建议 admin），不要带空格或特殊符号。'
   },
+  WX_CONTEXT_REQUIRED: {
+    message: '未获取到微信身份（openid）',
+    hint: '请在微信小程序内打开，不要使用网页或游客模式；若仍为空，先确认 wx.cloud.init 的环境 ID 正确。'
+  },
+  ADMIN_OPENID_NOT_BOUND: {
+    message: '当前微信未绑定平台管理员',
+    hint: '在「平台管理」页用管理员账号 + 密码绑定当前微信（首次密码为 ADMIN_BOOTSTRAP_PASSWORD）；或在云开发控制台 → 数据库 → admins 集合，给管理员记录增加 openid 字段（值为当前 openid）。'
+  },
   PASSWORD_REQUIRED: {
     message: '请输入密码',
     hint: '首次登录的密码就是 ADMIN_BOOTSTRAP_PASSWORD 的值。'
@@ -108,4 +116,38 @@ function planLogin(input) {
   return { ok: true, mode: 'bootstrap', createCollection: false }
 }
 
-module.exports = { ERROR_MAP, fail, isCollectionMissing, planLogin }
+/**
+ * 小程序内平台管理员绑定决策（纯逻辑）。
+ * 入参：collectionErrorText / hasUid / boundAdminFound / hasCredentialAttempt /
+ *       credentialAdminFound / passwordMatches / collectionExists / adminTotal /
+ *       hasBootstrap / bootstrapMatches
+ * 返回：{ ok:true, mode:'bound'|'bind'|'bootstrap', createCollection } 或结构化错误
+ */
+function planWxLogin(input) {
+  const state = input || {}
+  if (state.collectionErrorText) {
+    return fail('INTERNAL_ERROR', '查询 admins 集合失败：' + state.collectionErrorText)
+  }
+  if (!state.hasUid) return fail('WX_CONTEXT_REQUIRED')
+  if (state.boundAdminFound) return { ok: true, mode: 'bound', createCollection: false }
+
+  if (state.hasCredentialAttempt && state.credentialAdminFound) {
+    if (!state.passwordMatches) return fail('INVALID_CREDENTIALS')
+    return { ok: true, mode: 'bind', createCollection: false }
+  }
+
+  const total = Number(state.adminTotal) || 0
+  const empty = !state.collectionExists || total === 0
+  if (!empty && state.hasCredentialAttempt) {
+    return fail('INVALID_CREDENTIALS', '管理员账号不存在或用户名不正确')
+  }
+  if (!empty) return fail('ADMIN_OPENID_NOT_BOUND')
+
+  if (!state.hasBootstrap) {
+    return fail(state.collectionExists ? 'ENV_MISSING' : 'ADMINS_COLLECTION_MISSING')
+  }
+  if (!state.bootstrapMatches) return fail('INVALID_CREDENTIALS', '初始口令不正确')
+  return { ok: true, mode: 'bootstrap', createCollection: !state.collectionExists }
+}
+
+module.exports = { ERROR_MAP, fail, isCollectionMissing, planLogin, planWxLogin }

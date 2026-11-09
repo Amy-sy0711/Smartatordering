@@ -83,9 +83,10 @@ function describeCaller(event) {
     ctx = {}
   }
   const userInfo = (event && event.userInfo) || {}
-  const hasUid = Boolean(ctx.OPENID || ctx.CUSTOM_USER_ID || userInfo.openId || userInfo.openid)
+  const uid = String(ctx.OPENID || ctx.CUSTOM_USER_ID || userInfo.openId || userInfo.openid || '')
   return {
-    hasUid: hasUid,
+    uid: uid,
+    hasUid: Boolean(uid),
     source: String(ctx.SOURCE || (event && event.source) || '')
   }
 }
@@ -145,6 +146,111 @@ async function login(payload) {
   return ok({
     token: token,
     admin: { adminId: admin._id || admin.adminId, username: admin.username }
+  })
+}
+
+async function findAdminByOpenid(openid) {
+  if (!openid) return null
+  const res = await db.collection(ADMINS).where({ openid }).limit(1).get()
+  return (res && res.data && res.data[0]) || null
+}
+
+async function bindOpenid(admin, uid) {
+  const adminId = admin._id || admin.adminId
+  if (!adminId) return
+  await db.collection(ADMINS).doc(adminId).update({
+    data: { openid: uid, openidBoundAt: new Date(), updatedAt: new Date() }
+  })
+}
+
+/**
+ * 小程序内平台管理员登录 / 绑定（不依赖浏览器匿名登录，也不依赖 Web 安全域名）：
+ *  1) 当前 openid 已绑定 admins.openid → 直接放行
+ *  2) 提交管理员账号 + 密码且校验通过 → 把当前 openid 绑到该管理员记录
+ *  3) admins 为空（或集合不存在）→ 用 ADMIN_BOOTSTRAP_PASSWORD 创建第一个管理员并绑定 openid
+ * 小程序内后续调用 adminApi 直接用 openid 鉴权，不把 token 存在本地。
+ */
+async function wxLogin(payload, event) {
+  const caller = describeCaller(event)
+  const uid = caller.uid
+  const envs = envState()
+  const collection = await collectionState()
+
+  const username = String(payload.username || '').trim()
+  const password = String(payload.password || '')
+  const hasCredentialAttempt = Boolean(username && password)
+
+  let boundAdmin = null
+  let credentialAdmin = null
+  if (collection.exists && uid) {
+    try {
+      boundAdmin = await findAdminByOpenid(uid)
+    } catch (err) {
+      return fail('INTERNAL_ERROR', '查询管理员 openid 失败：' + String((err && (err.errMsg || err.message)) || ''))
+    }
+  }
+  if (collection.exists && hasCredentialAttempt) {
+    try {
+      credentialAdmin = await findAdminByUsername(username)
+    } catch (err) {
+      return fail('INTERNAL_ERROR', '查询管理员账号失败：' + String((err && (err.errMsg || err.message)) || ''))
+    }
+  }
+
+  const plan = core.planWxLogin({
+    collectionErrorText: collection.errorText,
+    hasUid: Boolean(uid),
+    boundAdminFound: Boolean(boundAdmin),
+    hasCredentialAttempt: hasCredentialAttempt,
+    credentialAdminFound: Boolean(credentialAdmin),
+    passwordMatches: credentialAdmin ? security.verifyPassword(password, credentialAdmin.passwordHash) : false,
+    collectionExists: collection.exists,
+    adminTotal: collection.total,
+    hasBootstrap: envs.bootstrap,
+    bootstrapMatches: envs.bootstrap && password ? password === envText('ADMIN_BOOTSTRAP_PASSWORD') : false
+  })
+  if (!plan.ok) return plan
+
+  let admin = boundAdmin
+  if (plan.mode === 'bootstrap') {
+    if (plan.createCollection) {
+      const ensured = await ensureCollection()
+      if (!ensured.ok) return fail('ADMINS_COLLECTION_MISSING', ensured.message, ensured.hint)
+    }
+    const adminId = security.newAdminId()
+    const doc = {
+      adminId: adminId,
+      username: username || 'admin',
+      passwordHash: security.hashPassword(password),
+      role: 'platform_admin',
+      openid: uid,
+      openidBoundAt: new Date(),
+      createdAt: new Date()
+    }
+    try {
+      await db.collection(ADMINS).doc(adminId).set({ data: doc })
+    } catch (err) {
+      if (core.isCollectionMissing(err)) return fail('ADMINS_COLLECTION_MISSING')
+      return fail('INTERNAL_ERROR', '创建管理员失败：' + String((err && (err.errMsg || err.message)) || ''))
+    }
+    admin = Object.assign({ _id: adminId }, doc)
+  } else if (plan.mode === 'bind') {
+    admin = credentialAdmin
+    try {
+      await bindOpenid(admin, uid)
+    } catch (err) {
+      return fail('INTERNAL_ERROR', '绑定 openid 失败：' + String((err && (err.errMsg || err.message)) || ''))
+    }
+  }
+
+  return ok({
+    bound: true,
+    openid: uid,
+    admin: {
+      adminId: admin._id || admin.adminId,
+      username: admin.username || '',
+      role: admin.role || 'platform_admin'
+    }
   })
 }
 
@@ -239,11 +345,12 @@ async function precheck(event) {
   })
 }
 
-exports.main = async (event) => {
+async function handleCall(event) {
   const action = String((event && event.action) || '')
   const payload = (event && event.payload) || {}
   try {
     if (action === 'login') return await login(payload)
+    if (action === 'wxLogin') return await wxLogin(payload, event)
     if (action === 'verify') return await verify(payload)
     if (action === 'precheck' || action === 'diagnose') return await precheck(event)
     return fail('UNKNOWN_ACTION', '未知的管理员认证接口：' + action)
@@ -259,4 +366,63 @@ exports.main = async (event) => {
     console.error('[adminAuth] 执行失败', err)
     return fail('INTERNAL_ERROR', (err && (err.errMsg || err.message)) || '管理员认证失败')
   }
+}
+
+/* ------------------------------ HTTP 访问服务（可选链路 B） ------------------------------ */
+
+function isHttpEvent(event) {
+  if (!event) return false
+  return Boolean(event.httpMethod || event.requestContext)
+}
+
+function headerValue(headers, name) {
+  const source = headers || {}
+  const target = String(name || '').toLowerCase()
+  const key = Object.keys(source).filter((item) => item.toLowerCase() === target)[0]
+  return key ? String(source[key] || '') : ''
+}
+
+function corsHeaders(event) {
+  const origin = headerValue(event && event.headers, 'origin') || '*'
+  return {
+    'Access-Control-Allow-Origin': origin,
+    'Access-Control-Allow-Headers': 'content-type,x-admin-token',
+    'Access-Control-Allow-Methods': 'POST,OPTIONS',
+    'Access-Control-Max-Age': '86400',
+    'Content-Type': 'application/json; charset=utf-8'
+  }
+}
+
+async function handleHttp(event) {
+  const method = String((event && event.httpMethod) || '').toUpperCase()
+  if (method === 'OPTIONS') return { statusCode: 204, headers: corsHeaders(event), body: '' }
+  if (method !== 'POST') {
+    return { statusCode: 405, headers: corsHeaders(event), body: JSON.stringify(fail('METHOD_NOT_ALLOWED', 'HTTP 访问服务仅支持 POST')) }
+  }
+  let text = (event && event.body) || ''
+  if (event && event.isBase64Encoded) {
+    try {
+      text = Buffer.from(String(text), 'base64').toString('utf8')
+    } catch (err) {
+      text = ''
+    }
+  }
+  let body = {}
+  if (typeof text === 'string' && text) {
+    try {
+      body = JSON.parse(text)
+    } catch (err) {
+      return { statusCode: 400, headers: corsHeaders(event), body: JSON.stringify(fail('BAD_JSON', '请求体必须是 JSON 对象')) }
+    }
+  }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return { statusCode: 400, headers: corsHeaders(event), body: JSON.stringify(fail('BAD_JSON', '请求体必须是 JSON 对象')) }
+  }
+  const result = await handleCall({ action: String(body.action || ''), payload: body.payload || {} })
+  return { statusCode: 200, headers: corsHeaders(event), body: JSON.stringify(result) }
+}
+
+exports.main = async (event) => {
+  if (isHttpEvent(event)) return await handleHttp(event)
+  return await handleCall(event)
 }

@@ -1,0 +1,90 @@
+<view class="page">
+  <view wx:if="{{checking}}" class="tip">正在校验平台管理员身份…</view>
+
+  <view wx:if="{{needBind && !checking}}" class="card">
+    <view class="card-title">绑定当前微信为平台管理员</view>
+    <view class="tip">{{accessMessage}}</view>
+    <view class="tip hint">{{accessHint}}</view>
+    <input class="input" placeholder="管理员账号（默认 admin）" value="{{username}}" data-field="username" bindinput="onField" />
+    <input class="input" placeholder="管理员密码 / 首次为 ADMIN_BOOTSTRAP_PASSWORD" password value="{{password}}" data-field="password" bindinput="onField" />
+    <button class="btn primary" bindtap="bindSelf">绑定并进入</button>
+    <button class="btn" bindtap="copyOpenid">复制当前 openid</button>
+    <button class="btn" bindtap="goHome">返回点餐首页</button>
+  </view>
+
+  <block wx:if="{{!needBind && !checking}}">
+    <view class="bar">
+      <input class="input search" placeholder="搜索商家名称 / ID" value="{{search}}" bindinput="onSearch" bindconfirm="searchNow" />
+      <button class="btn small" bindtap="searchNow">搜索</button>
+      <button class="btn small" bindtap="goAudit">审计日志</button>
+    </view>
+
+    <view class="filter">
+      <button class="chip {{statusFilter === '' ? 'active' : ''}}" data-status="" bindtap="setFilter">全部</button>
+      <button class="chip {{statusFilter === 'active' ? 'active' : ''}}" data-status="active" bindtap="setFilter">启用</button>
+      <button class="chip {{statusFilter === 'disabled' ? 'active' : ''}}" data-status="disabled" bindtap="setFilter">停用</button>
+      <button class="chip" bindtap="toggleCreate">+ 新建商家</button>
+    </view>
+
+    <view wx:if="{{errorText}}" class="error">{{errorText}}</view>
+
+    <view wx:if="{{createVisible}}" class="card">
+      <view class="card-title">新建商家</view>
+      <input class="input" placeholder="商家名称（必填）" value="{{createForm.name}}" data-field="createForm.name" bindinput="onField" />
+      <input class="input" placeholder="商家 ID（可选，留空自动生成）" value="{{createForm.merchantId}}" data-field="createForm.merchantId" bindinput="onField" />
+      <input class="input" placeholder="联系方式（可选）" value="{{createForm.contact}}" data-field="createForm.contact" bindinput="onField" />
+      <button class="btn primary" bindtap="createMerchant">创建</button>
+    </view>
+
+    <view wx:if="{{loading}}" class="tip">加载中…</view>
+    <view wx:if="{{!loading && merchants.length === 0}}" class="tip">暂无商家</view>
+
+    <view wx:for="{{merchants}}" wx:key="merchantId" class="card merchant">
+      <view class="row">
+        <view class="name">{{item.name || item.merchantId}}</view>
+        <view class="tag {{item.status === 'disabled' ? 'off' : 'on'}}">{{item.status === 'disabled' ? '已停用' : '启用中'}}</view>
+      </view>
+      <view class="meta">ID：{{item.merchantId}} · 套餐：{{item.plan || 'basic'}}</view>
+      <view class="meta">员工数：{{item.staffCount || 0}} · 今日订单数：{{item.todayOrderCount || 0}}</view>
+      <view class="actions">
+        <button class="btn small" data-id="{{item.merchantId}}" bindtap="goDetail">详情</button>
+        <button class="btn small" data-id="{{item.merchantId}}" bindtap="openEditor">编辑</button>
+        <button class="btn small" data-id="{{item.merchantId}}" bindtap="openStaff">员工</button>
+        <button class="btn small {{item.status === 'disabled' ? '' : 'danger'}}" data-id="{{item.merchantId}}" bindtap="toggleStatus">
+          {{item.status === 'disabled' ? '启用' : '停用'}}
+        </button>
+      </view>
+    </view>
+
+    <view wx:if="{{editor}}" class="card">
+      <view class="card-title">编辑 {{editor.merchantId}}</view>
+      <input class="input" placeholder="名称" value="{{editor.name}}" data-field="editor.name" bindinput="onField" />
+      <input class="input" placeholder="联系方式" value="{{editor.contact}}" data-field="editor.contact" bindinput="onField" />
+      <input class="input" placeholder="套餐（basic/standard/pro）" value="{{editor.plan}}" data-field="editor.plan" bindinput="onField" />
+      <input class="input" placeholder="到期日（YYYY-MM-DD，可留空）" value="{{editor.expiresAt}}" data-field="editor.expiresAt" bindinput="onField" />
+      <input class="input" placeholder="最大并发订单（0=不限）" type="number" value="{{editor.maxConcurrentOrders}}" data-field="editor.maxConcurrentOrders" bindinput="onField" />
+      <label class="check"><switch checked="{{editor.disableOrdering}}" data-field="editor.disableOrdering" bindchange="onEditorCheck" /> 暂停下单</label>
+      <label class="check"><switch checked="{{editor.pickupOnly}}" data-field="editor.pickupOnly" bindchange="onEditorCheck" /> 仅自取</label>
+      <view class="actions">
+        <button class="btn small primary" bindtap="saveEditor">保存</button>
+        <button class="btn small" bindtap="closeEditor">取消</button>
+      </view>
+    </view>
+
+    <view wx:if="{{staff}}" class="card">
+      <view class="card-title">员工管理 · {{staff.merchantId}}</view>
+      <view wx:for="{{staff.list}}" wx:key="openid" class="staff-row">
+        <view>{{item.name || '（未命名）'}} · {{item.role}} · {{item.openid}}</view>
+        <button class="btn small danger" data-openid="{{item.openid}}" bindtap="unbindStaff">解绑</button>
+      </view>
+      <view wx:if="{{staff.list.length === 0}}" class="tip">暂无员工</view>
+      <input class="input" placeholder="员工 openid" value="{{staff.openid}}" data-field="staff.openid" bindinput="onStaffField" />
+      <input class="input" placeholder="员工姓名（可选）" value="{{staff.name}}" data-field="staff.name" bindinput="onStaffField" />
+      <input class="input" placeholder="角色：staff / manager" value="{{staff.role}}" data-field="staff.role" bindinput="onStaffField" />
+      <view class="actions">
+        <button class="btn small primary" bindtap="bindStaff">绑定</button>
+        <button class="btn small" bindtap="closeStaff">关闭</button>
+      </view>
+    </view>
+  </block>
+</view>

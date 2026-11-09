@@ -6,8 +6,8 @@ const TABS = [
   { key: 'all', label: '全部', statuses: [] },
   { key: 'pending_confirm', label: '待确认收款', statuses: ['pending_confirm'] },
   { key: 'pending_pay', label: '待付款', statuses: ['pending_pay'] },
-  { key: 'paid', label: '待接单', statuses: ['paid'] },
-  { key: 'accepted', label: '制作中', statuses: ['accepted'] },
+  { key: 'paid', label: '待出餐', statuses: ['paid'] },
+  { key: 'accepted', label: '制作中（历史）', statuses: ['accepted'] },
   { key: 'ready', label: '可取餐', statuses: ['ready'] },
   { key: 'completed', label: '已完成', statuses: ['completed'] },
   { key: 'canceled', label: '已取消', statuses: ['canceled'] }
@@ -80,7 +80,7 @@ Page({
     if (action === 'confirm') {
       wx.showModal({
         title: '确认收款',
-        content: '确认已收到 ¥' + order.totalText + '（订单 #' + order.orderNo + '）？确认后订单进入备餐，并生成收款记录。',
+        content: '确认已收到 ¥' + order.totalText + '（订单 #' + order.orderNo + '）？确认后订单进入备餐，再点「出餐（生成取餐码）」生成取餐码。',
         success: (res) => {
           if (!res.confirm) return
           this.run(() => api.call('merchant.confirmReceipt', { orderId }), '已确认收款，订单进入备餐')
@@ -100,7 +100,7 @@ Page({
       })
       return
     }
-    const labels = { accept: '已接单', ready: '已出餐', complete: '订单已完成' }
+    const labels = { ready: '已出餐，取餐码已生成', complete: '已取餐' }
     this.run(() => api.call('merchant.transition', { orderId, action }), labels[action] || '操作成功')
   },
 

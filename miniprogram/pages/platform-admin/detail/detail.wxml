@@ -1,0 +1,67 @@
+<view class="page">
+  <view wx:if="{{checking}}" class="tip">正在校验平台管理员身份…</view>
+
+  <view wx:if="{{needBind && !checking}}" class="card">
+    <view class="card-title">绑定当前微信为平台管理员</view>
+    <view class="tip">{{accessMessage}}</view>
+    <view class="tip hint">{{accessHint}}</view>
+    <input class="input" placeholder="管理员账号（默认 admin）" value="{{username}}" data-field="username" bindinput="onField" />
+    <input class="input" placeholder="管理员密码 / 首次为 ADMIN_BOOTSTRAP_PASSWORD" password value="{{password}}" data-field="password" bindinput="onField" />
+    <button class="btn primary" bindtap="bindSelf">绑定并进入</button>
+  </view>
+
+  <block wx:if="{{!needBind && !checking}}">
+    <view class="card">
+      <view class="row">
+        <view class="card-title">商家 {{merchantId}}</view>
+        <view class="tag {{health.ok ? 'on' : 'off'}}">{{health.ok ? '健康' : '异常'}}</view>
+      </view>
+      <view wx:if="{{health}}" class="meta">名称：{{health.merchant.name || '—'}} · 状态：{{health.merchant.status}} · 套餐：{{health.merchant.plan || '—'}}</view>
+      <view wx:if="{{health}}" class="meta">员工数：{{health.merchant.staffCount}} · 今日菜单：{{health.todayMenu.published ? '已发布' : '未发布'}} · 支付模式：{{health.payment.payMode || '未配置'}}</view>
+      <view wx:if="{{health}}" class="meta">近 24h 错误数：{{health.errors.last24h}}</view>
+      <view wx:if="{{health && health.missingCollections.length}}" class="error">缺失集合：{{health.missingCollections}}</view>
+      <view wx:if="{{errorText}}" class="error">{{errorText}}</view>
+    </view>
+
+    <view wx:if="{{health}}" class="card">
+      <view class="card-title">集合状态（仅计数，不含业务明细）</view>
+      <view wx:for="{{health.collections}}" wx:key="name" class="row small">
+        <view>{{item.label || item.name}}</view>
+        <view class="{{item.exists ? 'ok' : 'bad'}}">{{item.exists ? item.total + ' 条' : '不存在'}}</view>
+      </view>
+    </view>
+
+    <view wx:if="{{health}}" class="card">
+      <view class="card-title">商家开关</view>
+      <view wx:for="{{flags}}" wx:key="key" class="row small"><view>{{item.key}}</view><view>{{item.value}}</view></view>
+      <view wx:if="{{flags.length === 0}}" class="tip">未设置特殊开关</view>
+    </view>
+
+    <view class="card">
+      <view class="card-title">修复动作</view>
+      <view class="actions">
+        <button class="btn small" data-action="repair.rebuildIndexes" bindtap="repair">重建索引</button>
+        <button class="btn small" data-action="repair.seedDefaults" bindtap="repair">初始化默认数据</button>
+        <button class="btn small" data-action="repair.cleanOrphans" bindtap="repair">清理孤儿数据</button>
+        <button class="btn small" data-action="repair.resetStaff" bindtap="repair">重置员工</button>
+        <button class="btn small" data-action="repair.revokeTokens" bindtap="repair">吊销 token</button>
+        <button class="btn small" data-action="repair.refreshMenuCache" bindtap="repair">刷新菜单缓存</button>
+      </view>
+      <view class="tip">所有写操作都会写入审计日志（audit_logs）。</view>
+    </view>
+
+    <view class="card">
+      <view class="card-title">员工（{{staff.length}}）</view>
+      <view wx:for="{{staff}}" wx:key="openid" class="staff-row">
+        <view>{{item.name || '（未命名）'}} · {{item.role}} · {{item.openid}}</view>
+      </view>
+      <view wx:if="{{staff.length === 0}}" class="tip">暂无员工，请在列表页「员工」中绑定 openid</view>
+    </view>
+
+    <view class="actions">
+      <button class="btn small" bindtap="goAudit">审计日志</button>
+      <button class="btn small" bindtap="goBack">返回列表</button>
+      <button class="btn small" bindtap="loadAll">刷新</button>
+    </view>
+  </block>
+</view>

@@ -21,6 +21,11 @@
       <text class="pickup-code-value">{{item.pickupCode}}</text>
       <text class="pickup-code-tip">{{item.status === 'ready' ? '出示此码到店取餐' : '已取餐'}}</text>
     </view>
+    <!-- 历史待取餐订单可能早于取餐码功能，别留空白 -->
+    <view class="pickup-code pickup-code--missing" wx:elif="{{item.pickupCodeMissing}}">
+      <text class="pickup-code-label">取餐码</text>
+      <text class="pickup-code-tip">请向商家询问取餐码</text>
+    </view>
 
     <view class="order-body" data-id="{{item.orderId}}" bindtap="goDetail">
       <view class="order-summary">{{item.itemSummary}}</view>

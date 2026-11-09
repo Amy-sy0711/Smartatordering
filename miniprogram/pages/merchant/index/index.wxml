@@ -58,7 +58,7 @@
       <view class="grid-item" bindtap="goBoard">
         <view class="grid-icon">🧾</view>
         <view class="grid-title">订单看板</view>
-        <view class="grid-desc">确认收款 / 接单 / 出餐 / 完成</view>
+        <view class="grid-desc">确认收款 / 出餐（生成取餐码） / 已取餐</view>
       </view>
       <view class="grid-item" bindtap="goPacking">
         <view class="grid-icon">📦</view>

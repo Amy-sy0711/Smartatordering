@@ -503,11 +503,51 @@ async function orders(ctx) {
   const listData = await dbLib.fetchAll(() =>
     ctx.db.collection(COL.ORDERS).where(where).orderBy('createdAt', 'desc')
   )
+  // 多租户改造前的旧订单没有 merchantId 字段，默认商家的看板需要把它们一并带回
+  const legacySameDay = merchantId === config.DEFAULT_MERCHANT_ID
+    ? await fetchLegacyOrders(ctx, dateKey, null)
+    : []
+  legacySameDay.forEach((order) => listData.push(order))
+  // 历史遗留的待收款订单（换了日期就看不见按钮 → 商家无法确认收款），
+  // 无论筛选哪一天，都把其他日期的 pending_pay / pending_confirm 一并带回，最多 100 单。
+  const unpaidStatuses = [state.STATUS.PENDING_PAY, state.STATUS.PENDING_CONFIRM]
+  const unpaid = where.status
+    ? []
+    : await dbLib.fetchAll(() =>
+        ctx.db
+          .collection(COL.ORDERS)
+          .where({ merchantId, status: ctx._.in(unpaidStatuses) })
+          .orderBy('createdAt', 'desc')
+      )
+  const legacyUnpaid = where.status || merchantId !== config.DEFAULT_MERCHANT_ID
+    ? []
+    : await fetchLegacyOrders(ctx, null, unpaidStatuses)
+  const seen = {}
+  listData.forEach((order) => { seen[order._id] = true })
+  const stale = unpaid
+    .concat(legacyUnpaid)
+    .filter((order) => !seen[order._id] && order.date !== dateKey)
+    .slice(0, 100)
+    .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
+  const merged = stale.concat(listData)
   return {
     date: dateKey,
     dateLabel: dates.shanghaiDateLabel(dateKey),
-    list: listData.map(merchantOrderView),
-    total: listData.length
+    list: merged.map((order) => Object.assign(merchantOrderView(order), { isStale: order.date !== dateKey })),
+    staleCount: stale.length,
+    total: merged.length
+  }
+}
+
+/** 旧订单没有 merchantId 字段：默认商家按「字段不存在」查一次，失败不影响主流程 */
+async function fetchLegacyOrders(ctx, dateKey, statuses) {
+  const where = { merchantId: ctx._.exists(false) }
+  if (dateKey) where.date = dateKey
+  if (statuses && statuses.length) where.status = ctx._.in(statuses)
+  try {
+    return await dbLib.fetchAll(() => ctx.db.collection(COL.ORDERS).where(where))
+  } catch (err) {
+    return []
   }
 }
 
@@ -515,18 +555,15 @@ async function getOrderOrThrow(ctx, orderId, merchantId) {
   const id = String(orderId || '')
   if (!id) fail('ORDER_ID_REQUIRED', '缺少订单号')
   if (!merchantId) fail('MERCHANT_REQUIRED', '缺少商家信息')
-  // 按 _id + merchantId 查询，杜绝跨租户读取
-  const res = await ctx.db
-    .collection(COL.ORDERS)
-    .where({ _id: id, merchantId })
-    .limit(1)
-    .get()
-  const order = (res.data && res.data[0]) || null
+  // 按 _id 取后校验租户，杜绝跨租户读取；旧订单没有 merchantId 字段，按默认商家处理
+  const order = await dbLib.getDocOrNull(ctx.db, COL.ORDERS, id)
   if (!order) fail('ORDER_NOT_FOUND', '订单不存在')
+  order.merchantId = order.merchantId || config.DEFAULT_MERCHANT_ID
+  if (order.merchantId !== merchantId) fail('ORDER_NOT_FOUND', '订单不存在')
   return order
 }
 
-/** 商家推进状态：接单 / 出餐 / 完成 / 取消（非法流转直接拒绝） */
+/** 商家推进状态：出餐（生成取餐码）/ 完成 / 取消；accept 仅为历史数据兼容（非法流转直接拒绝） */
 async function transition(ctx) {
   const identity = await requireMerchant(ctx, { write: true })
   const merchantId = merchantIdOf(identity)

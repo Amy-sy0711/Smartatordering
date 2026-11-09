@@ -12,7 +12,10 @@
     "pages/merchant/board/board",
     "pages/merchant/packing/packing",
     "pages/merchant/stats/stats",
-    "pages/merchant/settings/settings"
+    "pages/merchant/settings/settings",
+    "pages/platform-admin/index/index",
+    "pages/platform-admin/detail/detail",
+    "pages/platform-admin/audit/audit"
   ],
   "window": {
     "backgroundTextStyle": "dark",

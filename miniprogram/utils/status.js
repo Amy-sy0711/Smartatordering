@@ -2,7 +2,7 @@
 const STATUS_TEXT = {
   pending_pay: '待支付',
   pending_confirm: '待商家确认',
-  paid: '待接单',
+  paid: '待出餐',
   accepted: '制作中',
   ready: '待取餐',
   completed: '已取餐',
@@ -31,7 +31,6 @@ const ACTION_TEXT = {
   pay: '支付',
   transfer: '我已转账',
   confirm: '确认收款',
-  accept: '接单',
   ready: '出餐（生成取餐码）',
   complete: '已取餐',
   cancel: '取消订单'

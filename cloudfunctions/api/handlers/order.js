@@ -245,8 +245,17 @@ function summaryText(order) {
   return text.length > 60 ? text.slice(0, 58) + '…' : text
 }
 
+/** 多租户改造前的旧订单没有 merchantId 字段，统一视作默认商家 */
+function orderMerchantId(order) {
+  return (order && order.merchantId) || config.DEFAULT_MERCHANT_ID
+}
+
+function isPickupStage(order) {
+  return state.PICKUP_CODE_STATUSES.indexOf(order.status) >= 0
+}
+
 function pickupVisible(order) {
-  return state.PICKUP_CODE_STATUSES.indexOf(order.status) >= 0 && !!order.pickupCode
+  return isPickupStage(order) && !!order.pickupCode
 }
 
 function pickupFields(order) {
@@ -254,7 +263,9 @@ function pickupFields(order) {
   return {
     pickupCode: show ? order.pickupCode : '',
     pickupCodeText: show ? String(order.pickupCode) : '',
-    pickupCodeWarning: show ? order.pickupCodeWarning || '' : ''
+    pickupCodeWarning: show ? order.pickupCodeWarning || '' : '',
+    // 历史 ready 订单可能早于取餐码功能，展示「请向商家询问取餐码」而不是空白
+    pickupCodeMissing: isPickupStage(order) && !order.pickupCode
   }
 }
 
@@ -299,7 +310,10 @@ function timeline(order) {
   const reached = {}
   for (const item of order.statusHistory || []) reached[item.status] = true
 
-  return steps.map((step) => ({
+  // 新流程不再经过 accepted（接单）；只有历史订单走过才展示这一步
+  const visible = steps.filter((step) => step.key !== 'accepted' || !!reached.accepted)
+
+  return visible.map((step) => ({
     key: step.key,
     label: step.label,
     done: !!reached[step.key],
@@ -313,8 +327,8 @@ function availableActions(order, isMerchant) {
   if (isMerchant) {
     const isTransfer = order.payChannel ? order.payChannel === paymode.PAY_MODES.TRANSFER : true
     if (isTransfer && state.ACTION_RULES.confirm.from.indexOf(status) >= 0) actions.push('confirm')
-    if (status === state.STATUS.PAID) actions.push('accept')
-    if (status === state.STATUS.ACCEPTED) actions.push('ready')
+    // 已收款即可出餐（不再需要「接单」）；accepted 仅用于兼容历史订单
+    if (status === state.STATUS.PAID || status === state.STATUS.ACCEPTED) actions.push('ready')
     if (status === state.STATUS.READY) actions.push('complete')
   } else if (status === state.STATUS.PENDING_PAY) {
     actions.push('pay')
@@ -329,14 +343,11 @@ async function getOrderForUser(ctx, orderId) {
   const id = String(orderId || '')
   if (!id) fail('ORDER_ID_REQUIRED', '缺少订单号')
   const identity = ctx.identity || await identityLib.resolveIdentity(ctx)
-  // 租户隔离：订单查询必须同时带 merchantId，不能只按全局唯一 ID 取
-  const res = await ctx.db
-    .collection(COL.ORDERS)
-    .where({ _id: id, merchantId: identity.merchantId })
-    .limit(1)
-    .get()
-  const order = (res.data && res.data[0]) || null
+  // 先按 _id 取，再在内存里校验租户：旧订单没有 merchantId 字段，硬编码 where 会查不到
+  const order = await dbLib.getDocOrNull(ctx.db, COL.ORDERS, id)
   if (!order) fail('ORDER_NOT_FOUND', '订单不存在')
+  order.merchantId = orderMerchantId(order)
+  if (order.merchantId !== identity.merchantId) fail('ORDER_NOT_FOUND', '订单不存在')
   if (!identityCore.canAccessOrder(identity, order)) fail('FORBIDDEN', '无权查看该订单')
   ctx.identity = identity
   return order
@@ -347,20 +358,27 @@ async function list(ctx) {
   const page = Math.max(Number(payload.page) || 1, 1)
   const size = 20
   const identity = ctx.identity || await identityLib.resolveIdentity(ctx)
-  // 只列当前商家下的本人订单；不采用前端传入的 merchantId
-  const res = await ctx.db
-    .collection(COL.ORDERS)
-    .where({ buyerOpenid: ctx.openid, merchantId: identity.merchantId })
-    .orderBy('createdAt', 'desc')
-    .skip((page - 1) * size)
-    .limit(size)
-    .get()
-  const listData = (res.data || []).map((order) => {
+  // 只按买家 openid 取本人「全部」订单，再在内存里按商家过滤：
+  //  1) 不附加任何日期条件，跨天历史订单不会消失；
+  //  2) 兼容多租户改造前的旧订单（没有 merchantId 字段，视为默认商家）；
+  //  3) 内存排序 + 分页，避免老订单因排序字段缺失被截断。
+  const all = await dbLib.fetchAll(() =>
+    ctx.db.collection(COL.ORDERS).where({ buyerOpenid: ctx.openid })
+  )
+  const mine = all
+    .filter((order) => orderMerchantId(order) === identity.merchantId)
+    .sort((a, b) => {
+      const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0
+      const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0
+      return (tb - ta) || String(b.orderNo || b._id).localeCompare(String(a.orderNo || a._id))
+    })
+  const start = (page - 1) * size
+  const listData = mine.slice(start, start + size).map((order) => {
     const view = orderView(order)
-    view.merchantId = order.merchantId || ''
+    view.merchantId = orderMerchantId(order)
     return view
   })
-  return { page, list: listData, hasMore: listData.length === size }
+  return { page, list: listData, hasMore: start + size < mine.length, total: mine.length }
 }
 
 async function detail(ctx) {
@@ -382,6 +400,7 @@ async function detail(ctx) {
     pickupCode: pickupFields(order).pickupCode,
     pickupCodeText: pickupFields(order).pickupCodeText,
     pickupCodeWarning: pickupFields(order).pickupCodeWarning,
+    pickupCodeMissing: pickupFields(order).pickupCodeMissing,
     payChannel: order.payChannel || '',
     payChannelLabel: paymode.PAY_MODE_LABELS[order.payChannel] || '',
     totalCents,

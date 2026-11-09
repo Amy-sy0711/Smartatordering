@@ -9,7 +9,8 @@ const { fail } = require('./errors')
  *        │                                        │                            │
  *        └──────────(mock/jsapi 支付成功)──────────┴────────────────────────────┘
  *                                                                              ↓
- *                                                        paid ──接单──> accepted ──出餐──> ready ──完成──> completed
+ *                                            paid ──出餐（生成取餐码）──> ready ──取餐──> completed
+ *   兼容旧数据：accepted 仍可出餐 → ready，但新流程不再产生 accepted（无「接单」动作）。
  *   以上任一非终态均可 cancel → canceled（终态）
  */
 const STATUS = {
@@ -25,7 +26,7 @@ const STATUS = {
 const STATUS_TEXT = {
   pending_pay: '待付款',
   pending_confirm: '待确认收款',
-  paid: '待接单',
+  paid: '待出餐',
   accepted: '制作中',
   ready: '可取餐',
   completed: '已完成',
@@ -49,7 +50,7 @@ const PICKUP_CODE_STATUSES = ['ready', 'completed']
 const TRANSITIONS = {
   pending_pay: ['pending_confirm', 'paid', 'canceled'],
   pending_confirm: ['paid', 'canceled'],
-  paid: ['accepted', 'canceled'],
+  paid: ['accepted', 'ready', 'canceled'],
   accepted: ['ready', 'canceled'],
   ready: ['completed', 'canceled'],
   completed: [],
@@ -61,8 +62,9 @@ const ACTION_RULES = {
   transfer: { to: 'pending_confirm', from: ['pending_pay'] },      // 顾客：我已转账
   pay: { to: 'paid', from: ['pending_pay'] },                      // mock/jsapi 支付成功
   confirm: { to: 'paid', from: ['pending_pay', 'pending_confirm'] }, // 商家：确认收款（顾客已转账或钱已到账）
-  accept: { to: 'accepted', from: ['paid'] },                      // 商家：接单（必须已收款）
-  ready: { to: 'ready', from: ['accepted'] },                      // 商家：出餐
+  // 兼容旧数据：accepted 保留，但 UI 不再产生；新流程已收款（paid）即可直接出餐
+  accept: { to: 'accepted', from: ['paid'] },
+  ready: { to: 'ready', from: ['paid', 'accepted'] },              // 商家：出餐并生成取餐码
   complete: { to: 'completed', from: ['ready'] },                  // 商家：完成
   cancel: { to: 'canceled', from: ['pending_pay', 'pending_confirm', 'paid', 'accepted', 'ready'] }
 }

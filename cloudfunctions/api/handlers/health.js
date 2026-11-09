@@ -81,6 +81,7 @@ async function health(ctx) {
     ok: true,
     mode: 'cloud',
     envId: ctx.envId || '',
+    apiVersion: config.API_VERSION,
     serverTimeText: dates.shanghaiDateTime(serverTime),
     openid: ctx.openid || '',
     identity: {

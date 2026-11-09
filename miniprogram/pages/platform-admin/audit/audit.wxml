@@ -1,0 +1,30 @@
+<view class="page">
+  <view wx:if="{{checking}}" class="tip">正在校验平台管理员身份…</view>
+
+  <view wx:if="{{needBind && !checking}}" class="card">
+    <view class="card-title">绑定当前微信为平台管理员</view>
+    <view class="tip">{{accessMessage}}</view>
+    <view class="tip hint">{{accessHint}}</view>
+    <input class="input" placeholder="管理员账号（默认 admin）" value="{{username}}" data-field="username" bindinput="onField" />
+    <input class="input" placeholder="管理员密码 / 首次为 ADMIN_BOOTSTRAP_PASSWORD" password value="{{password}}" data-field="password" bindinput="onField" />
+    <button class="btn primary" bindtap="bindSelf">绑定并进入</button>
+  </view>
+
+  <block wx:if="{{!needBind && !checking}}">
+    <view class="card">
+      <view class="card-title">审计日志{{merchantId ? '（仅 ' + merchantId + '）' : ''}}</view>
+      <view wx:if="{{errorText}}" class="error">{{errorText}}</view>
+      <view wx:if="{{loading}}" class="tip">加载中…</view>
+      <view wx:if="{{!loading && list.length === 0}}" class="tip">暂无审计记录</view>
+      <view wx:for="{{list}}" wx:key="index" class="log-row">
+        <view class="log-head">{{item.action}} · {{item.result === 'ok' ? '成功' : '失败'}}{{item.code ? '（' + item.code + '）' : ''}}</view>
+        <view class="log-meta">操作者：{{item.actorName || item.actorId || '—'}}（{{item.actorType}}）· 商家：{{item.merchantId || '—'}}</view>
+        <view class="log-meta">来源：{{item.source || '—'}} · 时间：{{item.at}}</view>
+      </view>
+    </view>
+    <view class="actions">
+      <button class="btn small" bindtap="loadAudit">刷新</button>
+      <button class="btn small" bindtap="goBack">返回</button>
+    </view>
+  </block>
+</view>

@@ -279,9 +279,10 @@ test('未付款（pending_pay）不能接单', () => {
   expectCode(() => state.assertAction('pending_pay', 'accept'), 'ILLEGAL_TRANSITION')
 })
 
-test('已收款后的合法流转：paid → accepted → ready → completed', () => {
-  assert.strictEqual(state.assertAction('paid', 'accept'), 'accepted')
-  assert.strictEqual(state.assertAction('accepted', 'ready'), 'ready')
+test('已收款后的合法流转：paid → ready（无接单），accepted 仅兼容', () => {
+  assert.strictEqual(state.assertAction('paid', 'accept'), 'accepted') // 历史兼容
+  assert.strictEqual(state.assertAction('paid', 'ready'), 'ready')     // 新流程：已收款直接出餐
+  assert.strictEqual(state.assertAction('accepted', 'ready'), 'ready') // 历史数据兼容
   assert.strictEqual(state.assertAction('ready', 'complete'), 'completed')
 })
 
@@ -598,7 +599,7 @@ test('local 时段限量：名额用满后拒绝下单', () => {
   expectCode(() => localCreate(backend, [{ dishId: 'dish_drink', qty: 1, specOptionIds: [] }]), 'SLOT_FULL')
 })
 
-test('local 转账闭环：pending_pay → pending_confirm → paid → accepted → ready → completed', () => {
+test('local 转账闭环（两次点击）：pending_pay → pending_confirm → paid → ready → completed，无接单', () => {
   const { backend } = makeLocal()
   const created = localCreate(backend, [{ dishId: 'dish_drink', qty: 1, specOptionIds: [] }])
   const orderId = created.orderId
@@ -606,10 +607,27 @@ test('local 转账闭环：pending_pay → pending_confirm → paid → accepted
   const confirmed = backend.run('merchant.confirmReceipt', { orderId })
   assert.strictEqual(confirmed.order.status, 'paid')
   assert.strictEqual(confirmed.record.amountCents, 500)
-  assert.strictEqual(backend.run('merchant.transition', { orderId, action: 'accept' }).status, 'accepted')
-  assert.strictEqual(backend.run('merchant.transition', { orderId, action: 'ready' }).status, 'ready')
+  // 确认收款不生成取餐码
+  assert.strictEqual(backend.run('order.detail', { orderId }).pickupCode, '')
+  // 已收款直接出餐，不再经过 accepted
+  const ready = backend.run('merchant.transition', { orderId, action: 'ready' })
+  assert.strictEqual(ready.status, 'ready')
+  assert.ok(ready.pickupCode, '出餐当场生成取餐码')
   assert.strictEqual(backend.run('merchant.transition', { orderId, action: 'complete' }).status, 'completed')
   assert.strictEqual(backend.run('order.detail', { orderId }).status, 'completed')
+})
+
+test('local accepted 仅为历史兼容：可直接出餐到 ready', () => {
+  const { storage, backend } = makeLocal()
+  const orderId = localCreate(backend, [{ dishId: 'dish_drink', qty: 1, specOptionIds: [] }]).orderId
+  backend.run('merchant.confirmReceipt', { orderId })
+  // 模拟历史数据停在 accepted（新流程 UI 不会再产生）
+  const db = storage.dump()
+  db.orders[orderId].status = 'accepted'
+  storage.set('local_db_v1', db)
+  const ready = backend.run('merchant.transition', { orderId, action: 'ready' })
+  assert.strictEqual(ready.status, 'ready')
+  assert.ok(ready.pickupCode, '历史 accepted 订单也能出码')
 })
 
 test('local 商家可直接对 pending_pay 确认收款，重复确认被拒', () => {
@@ -620,8 +638,11 @@ test('local 商家可直接对 pending_pay 确认收款，重复确认被拒', (
   assert.strictEqual(confirmed.order.status, 'paid')
   assert.strictEqual(confirmed.record.amountCents, 500)
   expectCode(() => backend.run('merchant.confirmReceipt', { orderId }), 'ILLEGAL_TRANSITION')
-  // 确认收款后才允许接单
-  assert.strictEqual(backend.run('merchant.transition', { orderId, action: 'accept' }).status, 'accepted')
+  // 确认收款后才允许出餐（商家视图下发的 actions）
+  const detail = backend.run('order.detail', { orderId, asMerchant: true })
+  assert.ok(detail.actions.indexOf('ready') >= 0, '已收款订单应下发 ready 动作')
+  assert.ok(detail.actions.indexOf('accept') < 0, '新流程不再下发接单动作')
+  assert.strictEqual(backend.run('merchant.transition', { orderId, action: 'ready' }).status, 'ready')
 })
 
 test('local 出餐生成取餐码：0001 起自增，取餐后仍展示，重复出餐不重号', () => {
@@ -631,14 +652,12 @@ test('local 出餐生成取餐码：0001 起自增，取餐后仍展示，重复
 
   assert.strictEqual(backend.run('order.detail', { orderId: first }).pickupCode, '', '未出餐不展示取餐码')
   backend.run('merchant.confirmReceipt', { orderId: first })
-  backend.run('merchant.transition', { orderId: first, action: 'accept' })
-  assert.strictEqual(backend.run('order.detail', { orderId: first }).pickupCode, '', '备餐中不展示取餐码')
+  assert.strictEqual(backend.run('order.detail', { orderId: first }).pickupCode, '', '已收款备餐中不展示取餐码')
   const readyFirst = backend.run('merchant.transition', { orderId: first, action: 'ready' })
   assert.strictEqual(readyFirst.pickupCode, '0001')
   assert.strictEqual(backend.run('order.detail', { orderId: first }).pickupCode, '0001')
 
   backend.run('merchant.confirmReceipt', { orderId: second })
-  backend.run('merchant.transition', { orderId: second, action: 'accept' })
   assert.strictEqual(backend.run('merchant.transition', { orderId: second, action: 'ready' }).pickupCode, '0002')
 
   // 重复点「出餐」被状态机拒绝，且不改变已生成取餐码
@@ -657,11 +676,71 @@ test('local 待取餐文案：顾客端 statusText 使用新语义', () => {
   assert.strictEqual(backend.run('order.detail', { orderId }).customerStatusText, '待商家确认')
   backend.run('merchant.confirmReceipt', { orderId })
   assert.strictEqual(backend.run('order.detail', { orderId }).customerStatusText, '已支付备餐中')
-  backend.run('merchant.transition', { orderId, action: 'accept' })
   backend.run('merchant.transition', { orderId, action: 'ready' })
   assert.strictEqual(backend.run('order.detail', { orderId }).customerStatusText, '待取餐')
   backend.run('merchant.transition', { orderId, action: 'complete' })
   assert.strictEqual(backend.run('order.detail', { orderId }).customerStatusText, '已取餐')
+})
+
+test('local 顾客历史订单：跨天可见、按时间倒序、分页不丢单', () => {
+  const { storage, backend } = makeLocal()
+  const orderId = localCreate(backend, [{ dishId: 'dish_drink', qty: 1, specOptionIds: [] }]).orderId
+  const db = storage.dump()
+  const base = db.orders[orderId]
+  // 造 24 条 10 月的历史订单，验证跨天不再被日期条件藏掉
+  for (let i = 1; i <= 24; i++) {
+    const day = String(i).padStart(2, '0')
+    const id = '202610' + day + '-0001'
+    db.orders[id] = Object.assign({}, base, {
+      _id: id,
+      orderNo: id,
+      date: '202610' + day,
+      createdAt: '2026-10-' + day + 'T02:00:00.000Z',
+      updatedAt: '2026-10-' + day + 'T02:00:00.000Z',
+      status: 'completed',
+      pickupCode: '0003'
+    })
+  }
+  storage.set('local_db_v1', db)
+  const page1 = backend.run('order.list', { page: 1 })
+  assert.strictEqual(page1.list.length, 20)
+  assert.strictEqual(page1.total, 25)
+  assert.strictEqual(page1.hasMore, true)
+  assert.strictEqual(page1.list[0].orderId, orderId, '最新订单排在最前')
+  const page2 = backend.run('order.list', { page: 2 })
+  assert.strictEqual(page2.list.length, 5)
+  assert.strictEqual(page2.hasMore, false)
+  const ids = page1.list.concat(page2.list).map((item) => item.orderId)
+  assert.strictEqual(new Set(ids).size, 25, '分页不重复不丢单')
+})
+
+test('local ready 但无取餐码（历史订单）展示兜底标记', () => {
+  const { storage, backend } = makeLocal()
+  const orderId = localCreate(backend, [{ dishId: 'dish_drink', qty: 1, specOptionIds: [] }]).orderId
+  backend.run('merchant.confirmReceipt', { orderId })
+  backend.run('merchant.transition', { orderId, action: 'ready' })
+  const db = storage.dump()
+  delete db.orders[orderId].pickupCode
+  storage.set('local_db_v1', db)
+  const detail = backend.run('order.detail', { orderId })
+  assert.strictEqual(detail.pickupCode, '')
+  assert.strictEqual(detail.pickupCodeMissing, true, '应展示「请向商家询问取餐码」')
+  const item = backend.run('order.list', { page: 1 }).list[0]
+  assert.strictEqual(item.pickupCodeMissing, true)
+})
+
+test('local 商家看板：跨天待收款订单仍能确认收款', () => {
+  const { storage, backend } = makeLocal()
+  const orderId = localCreate(backend, [{ dishId: 'dish_drink', qty: 1, specOptionIds: [] }]).orderId
+  const db = storage.dump()
+  db.orders[orderId].date = '20261104'
+  db.orders[orderId].createdAt = '2026-11-04T02:00:00.000Z'
+  storage.set('local_db_v1', db)
+  const board = backend.run('merchant.orders', { date: '20261105' })
+  const item = board.list.filter((order) => order.orderId === orderId)[0]
+  assert.ok(item, '跨天待收款订单应出现在今日看板')
+  assert.strictEqual(item.isStale, true)
+  assert.strictEqual(backend.run('merchant.confirmReceipt', { orderId }).order.status, 'paid')
 })
 
 test('local 打包清单按菜品+规格聚合数量', () => {
