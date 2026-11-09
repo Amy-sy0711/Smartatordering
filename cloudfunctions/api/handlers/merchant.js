@@ -496,18 +496,23 @@ async function orders(ctx) {
   const payload = ctx.payload || {}
   const dateKey = String(payload.date || dates.shanghaiDateKey())
   const where = { merchantId, date: dateKey }
+  let statusFilter = null
   if (Array.isArray(payload.statuses) && payload.statuses.length) {
     const valid = payload.statuses.filter((s) => state.STATUS_TEXT[s])
-    if (valid.length) where.status = ctx._.in(valid)
+    if (valid.length) {
+      where.status = ctx._.in(valid)
+      statusFilter = valid
+    }
   }
   const listData = await dbLib.fetchAll(() =>
     ctx.db.collection(COL.ORDERS).where(where).orderBy('createdAt', 'desc')
   )
   // 多租户改造前的旧订单没有 merchantId 字段，默认商家的看板需要把它们一并带回
   const legacySameDay = merchantId === config.DEFAULT_MERCHANT_ID
-    ? await fetchLegacyOrders(ctx, dateKey, null)
+    ? await fetchLegacyOrders(ctx, dateKey, statusFilter)
     : []
   legacySameDay.forEach((order) => listData.push(order))
+  listData.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
   // 历史遗留的待收款订单（换了日期就看不见按钮 → 商家无法确认收款），
   // 无论筛选哪一天，都把其他日期的 pending_pay / pending_confirm 一并带回，最多 100 单。
   const unpaidStatuses = [state.STATUS.PENDING_PAY, state.STATUS.PENDING_CONFIRM]
